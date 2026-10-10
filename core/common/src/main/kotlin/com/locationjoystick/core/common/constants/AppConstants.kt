@@ -353,6 +353,7 @@ object AppConstants {
         const val EXTRA_SHOW_COMPASS_DISCLOSURE = "show_compass_disclosure"
         const val ACTION_ENTER_FOLLOWER = "com.locationjoystick.core.location.ACTION_ENTER_FOLLOWER"
         const val ACTION_EXIT_FOLLOWER = "com.locationjoystick.core.location.ACTION_EXIT_FOLLOWER"
+        const val ACTION_RESUME_FOLLOWER = "com.locationjoystick.core.location.ACTION_RESUME_FOLLOWER"
         const val ACTION_FOLLOWER_TELEPORT = "com.locationjoystick.core.location.ACTION_FOLLOWER_TELEPORT"
         const val EXTRA_FOLLOWER_HOST = "extra_follower_host"
         const val EXTRA_FOLLOWER_PORT = "extra_follower_port"
@@ -575,6 +576,9 @@ object AppConstants {
 
         /** NSD re-discovery attempts after poll failures exhaust, before actually leaving the group. */
         const val NSD_REDISCOVERY_RETRY_COUNT = 2
+
+        /** A follower that took over manually and then stood still this long resumes Follow leader. */
+        const val FOLLOWER_RESUME_IDLE_MS = 30_000L
     }
 
     object TapToWalkConstants {

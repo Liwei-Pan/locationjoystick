@@ -516,6 +516,15 @@ class MockLocationService : Service() {
                 exitFollowerMode()
             }
 
+            AppConstants.ServiceConstants.ACTION_RESUME_FOLLOWER -> {
+                // Same NSD re-resolve as boot restoration: the leader's port may have changed.
+                serviceScope.launch {
+                    val gs = groupRepository.groupState.first()
+                    val id = gs.groupId
+                    if (gs.role == GroupRole.FOLLOWER && gs.followerModeEnabled && id != null) startFollowerRestoration(id)
+                }
+            }
+
             AppConstants.ServiceConstants.ACTION_START_LEADER -> {
                 val groupId = intent.getStringExtra(AppConstants.ServiceConstants.EXTRA_LEADER_GROUP_ID) ?: return START_STICKY
                 enterLeaderMode(groupId)

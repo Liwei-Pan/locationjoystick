@@ -1,6 +1,7 @@
 package com.locationjoystick.core.location
 
 import android.content.Context
+import com.locationjoystick.core.common.constants.AppConstants
 import com.locationjoystick.core.data.FavoriteRepository
 import com.locationjoystick.core.data.GroupRepository
 import com.locationjoystick.core.data.LocationRepository
@@ -11,6 +12,8 @@ import com.locationjoystick.core.data.SettingsRepository
 import com.locationjoystick.core.data.TeleportUseCase
 import com.locationjoystick.core.data.WalkCoordinator
 import com.locationjoystick.core.data.WalkToEngine
+import com.locationjoystick.core.model.GroupRole
+import com.locationjoystick.core.model.GroupState
 import com.locationjoystick.core.model.LatLng
 import com.locationjoystick.core.model.MockLocationState
 import com.locationjoystick.core.model.MockMode
@@ -204,6 +207,60 @@ class MapControllerWalkCancellationTest {
 
             coVerify(exactly = 1) { harness.groupRepository.setFollowerModeEnabled(false) }
             verify(exactly = 1) { harness.context.startService(any()) }
+        }
+
+    @Test
+    fun `follower takeover resumes Follow leader after idle window, not while still moving`() =
+        runTest(UnconfinedTestDispatcher()) {
+            every { MockLocationIntentBuilder.exitFollower(any()) } returns mockk(relaxed = true)
+            every { MockLocationIntentBuilder.resumeFollower(any()) } returns mockk(relaxed = true)
+            val harness = buildHarness(backgroundScope, mockk(relaxed = true))
+            every { harness.groupRepository.groupState } returns
+                flowOf(GroupState(role = GroupRole.FOLLOWER, groupId = "AB3X9K"))
+            val repo = harness.locationRepository
+            repo.setMockMode(MockMode.FOLLOWER)
+            repo.setPositionInternal(LatLng(48.8566, 2.3522))
+            harness.mapController.pauseAutomatedMovement()
+            // What the service does on ACTION_EXIT_FOLLOWER.
+            repo.setMockMode(MockMode.TELEPORT)
+            repo.startSpoofing()
+
+            advanceTimeBy(AppConstants.SyncConstants.FOLLOWER_RESUME_IDLE_MS - 1_000)
+            repo.setPositionInternal(LatLng(48.8570, 2.3522))
+            advanceTimeBy(AppConstants.SyncConstants.FOLLOWER_RESUME_IDLE_MS - 1_000)
+            runCurrent()
+            coVerify(exactly = 0) { harness.groupRepository.setFollowerModeEnabled(true) }
+
+            advanceTimeBy(2_000)
+            runCurrent()
+            coVerify(exactly = 1) { harness.groupRepository.setFollowerModeEnabled(true) }
+            verify(exactly = 1) { MockLocationIntentBuilder.resumeFollower(any()) }
+        }
+
+    @Test
+    fun `follower that teleports or plays a route resumes Follow leader once idle again`() =
+        runTest(UnconfinedTestDispatcher()) {
+            every { MockLocationIntentBuilder.resumeFollower(any()) } returns mockk(relaxed = true)
+            val harness = buildHarness(backgroundScope, mockk(relaxed = true))
+            every { harness.groupRepository.groupState } returns
+                flowOf(GroupState(role = GroupRole.FOLLOWER, groupId = "AB3X9K", followerModeEnabled = true))
+            val repo = harness.locationRepository
+            repo.setMockMode(MockMode.FOLLOWER)
+            repo.startSpoofing()
+            repo.setPositionInternal(LatLng(48.8566, 2.3522))
+
+            // Favorite teleport / route start: the flag stays on, only the mode changes.
+            repo.setMockMode(MockMode.ROUTE_REPLAY)
+            advanceTimeBy(AppConstants.SyncConstants.FOLLOWER_RESUME_IDLE_MS * 3)
+            runCurrent()
+            coVerify(exactly = 0) { harness.groupRepository.setFollowerModeEnabled(true) }
+
+            // Route done: nothing moves for one window, then following resumes.
+            repo.setMockMode(MockMode.TELEPORT)
+            advanceTimeBy(AppConstants.SyncConstants.FOLLOWER_RESUME_IDLE_MS * 2 + 1_000)
+            runCurrent()
+            coVerify(exactly = 1) { harness.groupRepository.setFollowerModeEnabled(true) }
+            verify(exactly = 1) { MockLocationIntentBuilder.resumeFollower(any()) }
         }
 
     @Test
