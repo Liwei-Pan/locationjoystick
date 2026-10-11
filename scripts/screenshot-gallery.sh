@@ -1306,18 +1306,18 @@ if should_run_step "20"; then
   if [[ "$(switch_is_on "Enable Tap to Walk")" != "True" ]]; then
     tap_switch_for "Enable Tap to Walk"
     wait_s 1 "Warning dialog opening"
-    # Button label is "Agree" when the Accessibility disclosure is unanswered
+    # Button label is "Accept" when the Accessibility disclosure is unanswered
     # (API 30+), else "Enable anyway" (below API 30, or already answered).
-    # Exact match: the disclosure body contains "Tap Agree to open…", and the
+    # Exact match: the disclosure body contains "Tap Accept to open…", and the
     # buttons sit below the fold, so scroll first.
     $ADB shell input swipe 540 1800 540 400
     wait_s 1 "Scrolling to dialog buttons"
     dump=$(ui_dump)
-    agree=$(grep -c 'text="Agree"' "$dump" || true)
+    agree=$(grep -c 'text="Accept"' "$dump" || true)
     rm -f "$dump"
     if (( agree > 0 )); then
-      tap_text_exact "Agree"
-      # Agree opens Android's Accessibility settings; return to the app.
+      tap_text_exact "Accept"
+      # Accept opens Android's Accessibility settings; return to the app.
       wait_s 2 "Accessibility settings opening"
       back
       wait_s 2 "Returning to app"
@@ -1430,12 +1430,12 @@ if should_run_step "25"; then
   tap_switch_for "Enable Tap to Walk"
   wait_s 2 "Disclosure opening"
   screenshot "25_compass_disclosure"
-  # Not now leaves the feature off and records nothing, so the device keeps the
+  # Decline leaves the feature off and records nothing, so the device keeps the
   # state it had before this step.
-  # The disclosure is taller than the screen; Not now sits below the fold.
+  # The disclosure is taller than the screen; Decline sits below the fold.
   $ADB shell input swipe 540 1800 540 400
-  wait_s 1 "Scrolling to Not now"
-  tap_text_exact "Not now"
+  wait_s 1 "Scrolling to Decline"
+  tap_text_exact "Decline"
   wait_s 1 "Dismissing disclosure"
 fi
 

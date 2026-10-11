@@ -64,8 +64,9 @@
     <string name="compass_disclosure_data">"存取的資料：一張螢幕截圖，僅在你開啟「點擊行走」覆蓋層或在設定中點擊「測試」時擷取。"</string>
     <string name="compass_disclosure_purpose">"用途：在該截圖中找出遊戲的羅盤圖示，把你的點擊轉換成正確的實際行走方向。"</string>
     <string name="compass_disclosure_handling">"收集或分享的資料：無。截圖在本機檢查後立即刪除，絕不儲存或傳送到任何地方。該服務不讀取文字，也不會代你點擊。"</string>
-    <string name="compass_disclosure_optional">"點擊「同意」會開啟 Android 無障礙設定，你可以在那裡開啟該服務。點擊「暫不」則保持關閉。應用程式的其他功能不受影響。你可以隨時關閉它。"</string>
+    <string name="compass_disclosure_optional">"點擊「接受」會開啟 Android 無障礙設定，你可以在那裡開啟該服務。點擊「拒絕」則保持關閉。應用程式的其他功能不受影響。你可以隨時關閉它。"</string>
     <string name="compass_disclosure_guide">"閱讀「點擊行走」指南"</string>
-    <string name="compass_disclosure_accept">"同意"</string>
-    <string name="compass_disclosure_decline">"暫不"</string>
+    <string name="compass_disclosure_accept">"接受"</string>
+    <string name="compass_disclosure_decline">"拒絕"</string>
+    <string name="compass_disclosure_skip">"略過"</string>
 </resources>

@@ -64,8 +64,9 @@
     <string name="compass_disclosure_data">"Data accessed: one screenshot of your screen, taken only when you open the Tap to Walk overlay or tap Test in Settings."</string>
     <string name="compass_disclosure_purpose">"Why: to find your game’s compass icon in that screenshot and turn your tap into the correct real-world walking direction."</string>
     <string name="compass_disclosure_handling">"Data collected or shared: none. The screenshot is checked on your phone and deleted at once. It is never stored or sent anywhere. The service reads no text and never taps for you."</string>
-    <string name="compass_disclosure_optional">"Tap Agree to open Android’s Accessibility settings and turn on the service. Tap Not now to keep it off. The rest of the app works without it. You can turn it off at any time."</string>
+    <string name="compass_disclosure_optional">"Tap Accept to open Android’s Accessibility settings and turn on the service. Tap Decline to keep it off. The rest of the app works without it. You can turn it off at any time."</string>
     <string name="compass_disclosure_guide">"Read the Tap to Walk guide"</string>
-    <string name="compass_disclosure_accept">"Agree"</string>
-    <string name="compass_disclosure_decline">"Not now"</string>
+    <string name="compass_disclosure_accept">"Accept"</string>
+    <string name="compass_disclosure_decline">"Decline"</string>
+    <string name="compass_disclosure_skip">"Skip"</string>
 </resources>

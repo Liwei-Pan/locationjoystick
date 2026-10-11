@@ -40,6 +40,9 @@ import com.locationjoystick.core.designsystem.R
  * [caveats] and [showAccessibilityDisclosure] let the Tap to Walk switch reuse this one screen for
  * its own risk warning, so enabling the feature is a single surface instead of a dialog then a
  * screen. Below API 30 compass tracking cannot run, so only the caveats are shown.
+ *
+ * [onSkip], when set, adds a small bottom-right Skip button for the first-run prompt: it neither
+ * consents nor opens settings, it only marks the prompt as asked.
  */
 @Composable
 fun CompassDisclosureDialog(
@@ -49,6 +52,7 @@ fun CompassDisclosureDialog(
     acceptLabel: String = stringResource(R.string.compass_disclosure_accept),
     caveats: List<String> = emptyList(),
     showAccessibilityDisclosure: Boolean = true,
+    onSkip: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     Dialog(
@@ -104,6 +108,16 @@ fun CompassDisclosureDialog(
                     }
                     LjButton(onClick = onAccept, modifier = Modifier.weight(1f)) { Text(acceptLabel) }
                 }
+                if (onSkip != null) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = onSkip) {
+                            Text(
+                                stringResource(R.string.compass_disclosure_skip),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -113,4 +127,10 @@ fun CompassDisclosureDialog(
 @Composable
 private fun CompassDisclosureDialogPreview() {
     LjTheme { CompassDisclosureDialog(onAccept = {}, onDecline = {}) }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun CompassDisclosureDialogWithSkipPreview() {
+    LjTheme { CompassDisclosureDialog(onAccept = {}, onDecline = {}, onSkip = {}) }
 }

@@ -614,6 +614,9 @@ object AppConstants {
         const val DISCLOSURE_UNANSWERED = ""
         const val DISCLOSURE_ACCEPTED = "accepted"
         const val DISCLOSURE_DECLINED = "declined"
+
+        // First-run dialog dismissed via Skip: counts as asked, never grants capture.
+        const val DISCLOSURE_SKIPPED = "skipped"
     }
 
     object FollowerRestorationConstants {

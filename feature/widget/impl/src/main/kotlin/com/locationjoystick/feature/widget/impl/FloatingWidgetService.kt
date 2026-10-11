@@ -602,11 +602,11 @@ class FloatingWidgetService :
     /**
      * The compass screenshot is the first thing the overlay would take, so Play's Accessibility
      * API policy puts the disclosure here — in the feature's own usage flow — not only in Settings.
-     * Asked once: any answer, accept or decline, is persisted and never prompts again.
+     * Re-shown until accepted: decline and skip are persisted but the next tap asks again.
      */
     private fun needsCompassDisclosure(): Boolean =
         CompassAccessibilityService.isSupported() &&
-            compassDisclosureChoice.value == AppConstants.CompassTrackingConstants.DISCLOSURE_UNANSWERED
+            compassDisclosureChoice.value != AppConstants.CompassTrackingConstants.DISCLOSURE_ACCEPTED
 
     private fun showCompassDisclosure() {
         panelPresenter.hidePanelView()

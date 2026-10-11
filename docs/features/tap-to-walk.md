@@ -157,21 +157,23 @@ sub-screen, or that let the accessibility service run without an in-app accept. 
 (`:core:designsystem`) is the single disclosure surface: a full-screen dialog that names the
 AccessibilityService API, the data it reads (one screenshot), the purpose (compass heading), and
 that the screenshot stays on-device and nothing is collected or shared. Its title and body say
-"Accessibility" explicitly. It cannot be dismissed by back press or outside tap — only "Agree" or
-"Not now" (the wording from Play's prominent-disclosure guidance). Only "Agree" opens
-`ACTION_ACCESSIBILITY_SETTINGS`. A "Read the Tap to
+"Accessibility" explicitly. It cannot be dismissed by back press or outside tap — only "Accept" or
+"Decline" (the wording from Play's prominent-disclosure guidance), plus a small "Skip" at the
+bottom right on the first-run prompt only (`onSkip`). Only "Accept" opens
+`ACTION_ACCESSIBILITY_SETTINGS`; Skip consents to nothing and opens nothing. A "Read the Tap to
 Walk guide" link opens `AppConstants.AppInfo.TAP_TO_WALK_GUIDE_URL` (the wiki page), so the
 in-app disclosure stands on its own and the long-form explanation stays one tap away.
 
 Play also rejected a build (2400) whose disclosure was reachable only through Settings menus:
 the disclosure must sit in the normal usage flow. It therefore appears at every point where a user
 reaches the feature, always immediately before Android's own accessibility consent screen, and
-the first of them is onboarding, which every install walks through:
+the first of them is the first arrival at the Map, which every install reaches:
 
 | Entry point | Where |
 |---|---|
-| Onboarding | Optional "Compass orientation" card below the three required steps (every API level, skip line first, not counted in "Step X of 3", never blocks "Start"). "Review and turn on" opens the disclosure; Agree records the choice and opens Android's Accessibility settings on API 30+ (`OnboardingScreen.kt`). Not now records nothing, so the Tap to Walk switch asks again until Agree. `MainActivity` no longer auto-shows it on launch |
-| Turning Tap to Walk on | The Tap to Walk switch opens the same screen, with the two overlay caveats above the disclosure text and "Agree" as the accept label (`SettingsMenusSubScreen.kt`). Below API 30 only the caveats are shown, with "Enable anyway" |
+| First Map arrival | `LjApp` calls `MainActivity`'s dialog once when the route is the Map, API >= 30 and the stored choice is still unanswered (`shouldShowFirstRunCompassDisclosure`). Buttons: Accept, Decline, Skip. Every button stores an answer (`accepted`, `declined`, `skipped`), so it never auto-shows again |
+| Onboarding | Optional "Compass orientation" card below the three required steps (every API level, skip line first, not counted in "Step X of 3", never blocks "Start"). "Review and turn on" opens the disclosure; Accept records the choice and opens Android's Accessibility settings on API 30+ (`OnboardingScreen.kt`). Decline records nothing, so the Tap to Walk switch asks again until Accept. the first-run prompt covers installs that skip it |
+| Turning Tap to Walk on | The Tap to Walk switch opens the same screen, with the two overlay caveats above the disclosure text and "Accept" as the accept label (`SettingsMenusSubScreen.kt`). Below API 30 only the caveats are shown, with "Enable anyway" |
 | Tapping the widget crosshair | `FloatingWidgetService.onTapToWalkClicked()` launches `MainActivity` with `EXTRA_SHOW_COMPASS_DISCLOSURE`; the overlay opens on the next tap |
 | Settings compass row | "Open Settings" in `CompassOrientationSection` |
 
@@ -181,8 +183,10 @@ reviewers not reaching the in-app disclosure, hence the onboarding card. A skipp
 counts as an in-flow disclosure: it is on the first-run screen every install walks through, and
 the service stays gated on an in-app accept regardless.
 
-The answer is persisted in `COMPASS_DISCLOSURE_CHOICE`. The Tap to Walk switch and the crosshair
-prompt at most once — declining is remembered too, otherwise every crosshair tap would re-prompt.
+The answer is persisted in `COMPASS_DISCLOSURE_CHOICE` (`accepted`, `declined`, `skipped`, or empty
+when unanswered). Only the first-run prompt is gated on "unanswered"; the Tap to Walk switch, the
+crosshair and the Settings row keep asking until the choice is `accepted`, so a Decline or Skip
+never locks the feature out.
 The Settings compass row's "Open Settings" button always prompts, because it is the one path that
 opens Android's accessibility consent screen, and Play requires the disclosure before every trip
 there.
@@ -212,9 +216,9 @@ caveats before activating:
 
 The caveats and the accessibility disclosure share one screen, so the user confirms once instead of
 passing a dialog and then a disclosure screen. The confirm button turns the overlay on. It reads
-"Agree" when the accessibility disclosure is part of the screen, and then also records the accept
+"Accept" when the accessibility disclosure is part of the screen, and then also records the accept
 and opens `ACTION_ACCESSIBILITY_SETTINGS`. Below API 30, where only the caveats show, it reads
-"Enable anyway". "Not now" leaves the toggle off and records nothing — the user declined the
+"Enable anyway". "Decline" leaves the toggle off and records nothing — the user declined the
 feature, not the accessibility service. State is local (`rememberSaveable`) so the
 screen re-shows if the user disables and re-enables.
 

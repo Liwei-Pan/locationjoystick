@@ -294,8 +294,8 @@ class SettingsViewModel
                     launchAfterLinkPackage = capture.launchAfterLinkPackage,
                     compassTestTargetPackage = compassTestTargetPackage,
                     isCompassServiceGranted = isServiceGranted,
-                    compassDisclosureAnswered =
-                        compassDisclosureChoice != AppConstants.CompassTrackingConstants.DISCLOSURE_UNANSWERED,
+                    compassDisclosureAccepted =
+                        compassDisclosureChoice == AppConstants.CompassTrackingConstants.DISCLOSURE_ACCEPTED,
                     themeMode = themeMode,
                     isDirty = isDirty,
                 )

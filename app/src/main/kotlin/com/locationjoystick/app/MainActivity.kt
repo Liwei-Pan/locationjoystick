@@ -95,7 +95,7 @@ class MainActivity : ComponentActivity() {
             LjTheme(darkTheme = themeMode == ThemeMode.DARK) {
                 val compassViewModel: CompassDisclosureViewModel = hiltViewModel()
                 val showCompassDisclosure by showCompassDisclosureFlow.collectAsStateWithLifecycle()
-                // The first-run disclosure lives in onboarding; this serves the widget/intent path.
+                // Serves the widget/intent path and the first Map arrival (LjApp). Skip is offered only here.
                 if (showCompassDisclosure) {
                     val context = LocalContext.current
                     CompassDisclosureDialog(
@@ -114,6 +114,10 @@ class MainActivity : ComponentActivity() {
                             showCompassDisclosureFlow.value = false
                             compassViewModel.record(false)
                         },
+                        onSkip = {
+                            showCompassDisclosureFlow.value = false
+                            compassViewModel.skip()
+                        },
                     )
                 }
                 LjApp(
@@ -124,6 +128,7 @@ class MainActivity : ComponentActivity() {
                     navigateToCaptureFlow = navigateToCaptureFlow,
                     deepLinkFailedFlow = deepLinkFailedFlow,
                     gpxOpenFailedFlow = gpxOpenFailedFlow,
+                    onShowCompassDisclosure = { showCompassDisclosureFlow.value = true },
                 )
             }
         }

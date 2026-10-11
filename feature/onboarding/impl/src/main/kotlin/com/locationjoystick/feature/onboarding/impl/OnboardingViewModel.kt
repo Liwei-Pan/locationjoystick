@@ -69,7 +69,7 @@ class OnboardingViewModel
                 ?.any { it.id.contains("CompassAccessibilityService") }
                 ?: false
 
-        /** Records acceptance of the Accessibility disclosure; Not now records nothing so Tap to Walk asks again. */
+        /** Records acceptance of the Accessibility disclosure; Decline records nothing so Tap to Walk asks again. */
         fun recordCompassDisclosureAccepted() {
             viewModelScope.launch { settingsRepository.recordCompassDisclosure(true) }
         }

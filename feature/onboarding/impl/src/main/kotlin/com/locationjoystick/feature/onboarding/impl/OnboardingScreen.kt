@@ -292,7 +292,7 @@ internal fun OnboardingScreen(
 
             // Play's Accessibility API policy wants the disclosure in the normal usage flow, not only
             // behind Settings menus. Onboarding is the one screen every install walks through, so the
-            // optional compass step lives here (every API level; Not now records nothing) and shows the
+            // optional compass step lives here (every API level; Decline records nothing) and shows the
             // disclosure right before Android's Accessibility settings open.
             Spacer(modifier = Modifier.height(12.dp))
 

@@ -1,5 +1,6 @@
 package com.locationjoystick.app
 
+import android.os.Build
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -22,6 +23,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.locationjoystick.app.R
@@ -29,6 +31,7 @@ import com.locationjoystick.app.navigation.LjDrawerContent
 import com.locationjoystick.app.navigation.LjNavHost
 import com.locationjoystick.app.navigation.NavGateViewModel
 import com.locationjoystick.app.navigation.entryRouteFor
+import com.locationjoystick.core.common.constants.AppConstants
 import com.locationjoystick.core.model.RouteType
 import com.locationjoystick.feature.favorites.api.FAVORITES_ROUTE
 import com.locationjoystick.feature.map.api.CAPTURE_ROUTE
@@ -52,6 +55,7 @@ fun LjApp(
     navigateToCaptureFlow: Flow<Unit> = emptyFlow(),
     deepLinkFailedFlow: Flow<Unit> = emptyFlow(),
     gpxOpenFailedFlow: Flow<Unit> = emptyFlow(),
+    onShowCompassDisclosure: () -> Unit = {},
 ) {
     val navController = rememberNavController()
     val navGateViewModel: NavGateViewModel = hiltViewModel()
@@ -152,6 +156,19 @@ fun LjApp(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val currentRoute =
+        navController
+            .currentBackStackEntryAsState()
+            .value
+            ?.destination
+            ?.route
+    val compassChoice by navGateViewModel.compassDisclosureChoice.collectAsStateWithLifecycle()
+    LaunchedEffect(currentRoute, compassChoice) {
+        if (shouldShowFirstRunCompassDisclosure(currentRoute, compassChoice, Build.VERSION.SDK_INT)) {
+            onShowCompassDisclosure()
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         ModalNavigationDrawer(
             drawerState = drawerState,
@@ -172,12 +189,6 @@ fun LjApp(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
-        val currentRoute =
-            navController
-                .currentBackStackEntryAsState()
-                .value
-                ?.destination
-                ?.route
         if (currentRoute == IDLE_ROUTE) {
             WhatsNewPopup(
                 modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
@@ -205,3 +216,17 @@ internal fun shouldSkipIdleRedirect(route: String?): Boolean =
         route == ROUTE_PASTE_CREATOR_ROUTE ||
         route == FAVORITES_ROUTE ||
         route == CAPTURE_ROUTE
+
+/**
+ * Play's Accessibility policy wants the disclosure in normal usage, so an unanswered install gets
+ * it on first Map arrival. [choice] is null until DataStore loads; any stored answer (accept,
+ * decline, skip) counts as asked. Below API 30 the compass service cannot run.
+ */
+internal fun shouldShowFirstRunCompassDisclosure(
+    route: String?,
+    choice: String?,
+    sdk: Int,
+): Boolean =
+    route == MAP_ROUTE &&
+        choice == AppConstants.CompassTrackingConstants.DISCLOSURE_UNANSWERED &&
+        sdk >= Build.VERSION_CODES.R

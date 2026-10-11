@@ -304,7 +304,7 @@ private fun TapToWalkSection(
     val enabled = uiState.tapToWalkOverlayEnabled
     val needsCompassDisclosure =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-            !uiState.compassDisclosureAnswered &&
+            !uiState.compassDisclosureAccepted &&
             !uiState.isCompassServiceGranted
 
     Text(stringResource(R.string.settings_menus_tap_to_walk), style = MaterialTheme.typography.headlineSmall)
@@ -366,7 +366,7 @@ private fun TapToWalkSection(
     if (showEnableDisclosure) {
         CompassDisclosureDialog(
             title = stringResource(R.string.settings_menus_enable_tap_to_walk_2),
-            // Play requires Play-recommended Agree/Not now wording whenever the Accessibility disclosure
+            // Play requires Play-recommended Accept/Decline wording whenever the Accessibility disclosure
             // is on screen; the caveats-only variant (below API 30) keeps "Enable anyway".
             acceptLabel =
                 if (needsCompassDisclosure) {
