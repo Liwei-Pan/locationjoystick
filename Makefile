@@ -15,7 +15,7 @@ clean:
 	find . -name ".gradle" -type d -not -path "*/.git/*" | xargs rm -rf
 
 .PHONY: stop clean build bundle format lint install-on-phone reinstall-on-phone start-on-phone tail-log-on-phone \
-	test coverage coverage-open screenshot screenshot-playstore wiki-changelog wiki-serve smoke-test smoke-test-one
+	test coverage coverage-open screenshot screenshot-playstore accessibility-video wiki-changelog wiki-serve smoke-test smoke-test-one
 build:
 	./gradlew assembleRelease
 
@@ -54,6 +54,9 @@ screenshot:
 
 screenshot-playstore:
 	./scripts/screenshot-gallery.sh --marketing-only
+
+accessibility-video:
+	./scripts/playstore-foreground-location-video.sh --flow accessibility
 
 wiki-changelog:
 	python3 scripts/generate-changelog.py

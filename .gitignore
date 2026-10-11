@@ -30,3 +30,6 @@ Thumbs.db
 
 # Python
 **__pycache__
+
+# Local Play Console demo recordings (scripts/playstore-foreground-location-video.sh)
+*.mp4

@@ -9,10 +9,11 @@
 #     backgrounding the app, and stopping spoofing clears it.
 #
 #   --flow accessibility
-#     AccessibilityService use case: Settings -> Menus -> Tap to Walk switch
-#     opens the prominent disclosure (CompassDisclosureDialog), which names the
-#     API, the data read, and the purpose. Navigation mirrors step 25 of
-#     scripts/screenshot-gallery.sh.
+#     AccessibilityService use case: first Map arrival shows the prominent
+#     disclosure (CompassDisclosureDialog). The script records the disclosure,
+#     Accept, then Android's Accessibility settings screen. It wipes app data
+#     first (pm clear) so the choice is unanswered, leaving the device with the
+#     choice accepted and onboarding done.
 #
 # Usage:
 #   ./scripts/playstore-foreground-location-video.sh
@@ -22,7 +23,8 @@
 #
 # Prerequisites:
 #   - adb in PATH, device connected with USB debugging on
-#   - App installed and past onboarding (permissions granted)
+#   - App installed. The foreground flow needs it past onboarding; the
+#     accessibility flow resets app data itself.
 #
 # Recording is driven by `adb shell screenrecord` in the background, stopped
 # with SIGINT (so the mp4 finalizes correctly) once the scripted flow ends.
@@ -180,6 +182,35 @@ go_idle() {
   wait_s 3 "App starting"
 }
 
+# Wipes app data and re-grants what onboarding would, so the app starts at IDLE
+# with the compass disclosure choice unanswered (same grants as
+# screenshot-gallery.sh).
+reset_to_first_run() {
+  log "Resetting app data for a first-run disclosure..."
+  $ADB shell pm clear "$PACKAGE" >/dev/null
+  for perm in ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION POST_NOTIFICATIONS; do
+    $ADB shell pm grant "$PACKAGE" "android.permission.$perm" 2>/dev/null || true
+  done
+  $ADB shell appops set "$PACKAGE" SYSTEM_ALERT_WINDOW allow
+  $ADB shell appops set "$PACKAGE" android:mock_location allow
+}
+
+# True when the exact "Accept" node's centre is inside the screen. A node can
+# exist in the dump while scrolled off screen, so presence alone is not enough.
+accept_on_screen() {
+  local dump result
+  dump=$(ui_dump)
+  result=$(perl -lne '
+    if (/text="Accept"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/) {
+      my $cy = int(($2+$4)/2);
+      print ($cy > 0 && $cy < '"${SCREEN_H}"' ? "yes" : "no");
+      last;
+    }
+  ' "$dump" 2>/dev/null)
+  rm -f "$dump"
+  [[ "$result" == "yes" ]]
+}
+
 demo_mode_enter() {
   log "Entering demo mode (clean status bar)..."
   $ADB shell settings put global sysui_demo_allowed 1 2>/dev/null || true
@@ -237,6 +268,14 @@ sleep 1
 demo_mode_enter
 trap 'demo_mode_exit' EXIT
 
+# SCREEN_H is needed by accept_on_screen, so read it before any dump.
+SCREEN_SIZE=$($ADB shell wm size | awk '{print $NF}')
+SCREEN_H=$(echo "$SCREEN_SIZE" | awk -F'x' '{print $2}')
+
+if [[ "$FLOW" == "accessibility" ]]; then
+  reset_to_first_run
+fi
+
 go_idle
 dump=$(ui_dump)
 if grep -qi "onboarding\|Welcome\|grant\|permission" "$dump" 2>/dev/null; then
@@ -248,8 +287,6 @@ rm -f "$dump"
 
 # ── Recorded flow ────────────────────────────────────────────────────────────
 
-SCREEN_SIZE=$($ADB shell wm size | awk '{print $NF}')
-SCREEN_H=$(echo "$SCREEN_SIZE" | awk -F'x' '{print $2}')
 CARD_Y_MIN=$(( SCREEN_H * 30 / 100 ))
 
 start_recording
@@ -288,45 +325,26 @@ wait_s 2 "Simulation stopping"
 
 else
 
-log "=== Open Settings ==="
-tap_text_below "Settings" "$CARD_Y_MIN"
-wait_s 3 "Settings loading"
+log "=== Open Map (first arrival shows the disclosure) ==="
+tap_text_below "Map" 1
+wait_s 4 "Map loading"
 
-log "=== Open Menus ==="
-tap_text "Menus"
-wait_s 3 "Menus loading"
-
-log "=== Scroll to Tap to Walk ==="
+log "=== Scroll the disclosure until Accept is on screen ==="
 for _ in 1 2 3 4; do
-  dump=$(ui_dump)
-  found=$(grep -c 'text="Enable Tap to Walk"' "$dump" || true)
-  rm -f "$dump"
-  (( found > 0 )) && break
-  $ADB shell input swipe 540 1600 540 400
-  wait_s 2 "Scrolling to Tap to Walk"
+  accept_on_screen && break
+  $ADB shell input swipe 540 1600 540 700
+  wait_s 2 "Reading disclosure"
 done
-wait_s 2 "Showing Tap to Walk section"
+accept_on_screen || warn "Accept is not on screen; tapping anyway."
+wait_s 3 "Reading disclosure"
 
-# The disclosure only opens while the switch is off.
-if [[ "$(switch_is_on "Enable Tap to Walk")" == "True" ]]; then
-  log "=== Tap to Walk already on — turning it off first ==="
-  tap_switch_for "Enable Tap to Walk"
-  wait_s 2 "Turning Tap to Walk off"
-fi
+log "=== Accept (opens Android's Accessibility settings) ==="
+tap_text_exact "Accept"
+wait_s 5 "Showing Accessibility settings"
 
-log "=== Tap the Tap to Walk switch (prominent disclosure opens) ==="
-tap_switch_for "Enable Tap to Walk"
-wait_s 5 "Reading disclosure"
-
-log "=== Scroll the disclosure so the full text is visible ==="
-$ADB shell input swipe 540 1600 540 700
-wait_s 4 "Reading rest of disclosure"
-$ADB shell input swipe 540 1600 540 700
-wait_s 4 "Reading rest of disclosure"
-
-log "=== Decline (leaves the feature off and the device state unchanged) ==="
-tap_text_exact "Decline"
-wait_s 3 "Dismissing disclosure"
+log "=== Return to the app without enabling the service ==="
+$ADB shell input keyevent KEYCODE_BACK
+wait_s 2 "Returning to app"
 
 fi
 
