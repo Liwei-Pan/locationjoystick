@@ -9,11 +9,11 @@
 #     backgrounding the app, and stopping spoofing clears it.
 #
 #   --flow accessibility
-#     AccessibilityService use case: first Map arrival shows the prominent
-#     disclosure (CompassDisclosureDialog). The script records the disclosure,
-#     Accept, then Android's Accessibility settings screen. It wipes app data
-#     first (pm clear) so the choice is unanswered, leaving the device with the
-#     choice accepted and onboarding done.
+#     AccessibilityService use case: first-run onboarding shows the prominent
+#     disclosure (CompassDisclosureDialog) on entry. The script records the
+#     disclosure, Accept, then Android's Accessibility settings screen. It wipes
+#     app data first (pm clear, no re-grants) so the app opens on onboarding with
+#     the choice unanswered, leaving the device with the choice accepted.
 #
 # Usage:
 #   ./scripts/playstore-foreground-location-video.sh
@@ -182,17 +182,13 @@ go_idle() {
   wait_s 3 "App starting"
 }
 
-# Wipes app data and re-grants what onboarding would, so the app starts at IDLE
-# with the compass disclosure choice unanswered (same grants as
-# screenshot-gallery.sh).
+# Wipes app data so the app opens on onboarding with the compass disclosure
+# choice unanswered, like a fresh install. Only the notification prompt is
+# pre-granted: its system dialog would otherwise cover the disclosure on camera.
 reset_to_first_run() {
   log "Resetting app data for a first-run disclosure..."
   $ADB shell pm clear "$PACKAGE" >/dev/null
-  for perm in ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION POST_NOTIFICATIONS; do
-    $ADB shell pm grant "$PACKAGE" "android.permission.$perm" 2>/dev/null || true
-  done
-  $ADB shell appops set "$PACKAGE" SYSTEM_ALERT_WINDOW allow
-  $ADB shell appops set "$PACKAGE" android:mock_location allow
+  $ADB shell pm grant "$PACKAGE" android.permission.POST_NOTIFICATIONS 2>/dev/null || true
 }
 
 # True when the exact "Accept" node's centre is inside the screen. A node can
@@ -277,13 +273,15 @@ if [[ "$FLOW" == "accessibility" ]]; then
 fi
 
 go_idle
-dump=$(ui_dump)
-if grep -qi "onboarding\|Welcome\|grant\|permission" "$dump" 2>/dev/null; then
+if [[ "$FLOW" != "accessibility" ]]; then
+  dump=$(ui_dump)
+  if grep -qi "onboarding\|Welcome\|grant\|permission" "$dump" 2>/dev/null; then
+    rm -f "$dump"
+    echo "Error: app is on the onboarding screen. Complete onboarding then re-run."
+    exit 1
+  fi
   rm -f "$dump"
-  echo "Error: app is on the onboarding screen. Complete onboarding then re-run."
-  exit 1
 fi
-rm -f "$dump"
 
 # ── Recorded flow ────────────────────────────────────────────────────────────
 
@@ -325,9 +323,8 @@ wait_s 2 "Simulation stopping"
 
 else
 
-log "=== Open Map (first arrival shows the disclosure) ==="
-tap_text_below "Map" 1
-wait_s 4 "Map loading"
+log "=== Onboarding opens with the disclosure ==="
+wait_s 3 "Onboarding loading"
 
 log "=== Scroll the disclosure until Accept is on screen ==="
 for _ in 1 2 3 4; do

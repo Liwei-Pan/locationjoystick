@@ -10,10 +10,13 @@ Key files: `:feature:onboarding:impl/OnboardingScreen.kt`, `:feature:onboarding:
 2. Grant `ACCESS_FINE_LOCATION`
 3. Grant `SYSTEM_ALERT_WINDOW`
 4. Enable mock location (deep link to Developer Options; re-checked automatically on resume — see "Permission Checks" below)
-5. Optional: Compass orientation (every API level) — the card's first line says to skip it if you
-   don't want Tap to Walk. "Review and turn on" opens the Accessibility prominent disclosure
-   (`CompassDisclosureDialog`), then Android's Accessibility settings on Accept (below API 30 Accept only
-   records the choice). "Decline" records nothing, so the Tap to Walk switch asks again until Accept. Not required to proceed. An install that never answered it gets the same disclosure, with a Skip button, the first time it reaches the Map. See docs/features/tap-to-walk.md, "Prominent Disclosure".
+5. Optional: Compass orientation (every API level). On API 30+ the Accessibility prominent disclosure
+   (`CompassDisclosureDialog`) opens by itself on entering onboarding while the choice is unanswered, with
+   Accept, Decline and a small Skip. Accept opens Android's Accessibility settings (below API 30 it only
+   records the choice). Every button stores an answer, so it never auto-shows again; Tap to Walk entry
+   points still ask until Accept. The card's "Review and turn on" reopens it. Not required to proceed.
+   Installs that already finished onboarding never see the auto-show. See docs/features/tap-to-walk.md,
+   "Prominent Disclosure".
 6. Done → MapScreen
 
 A "Step X of 3" label and progress bar sit above the three permission cards, computed from how

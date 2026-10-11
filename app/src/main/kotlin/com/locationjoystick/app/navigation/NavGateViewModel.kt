@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
 /**
- * Exposes the mock-location bypass setting, the onboarding-complete flag, the compass disclosure choice and the spoofing state so
+ * Exposes the mock-location bypass setting, the onboarding-complete flag and the spoofing state so
  * [LjNavHost] and [com.locationjoystick.app.LjApp] can pick the right entry destination.
  */
 @HiltViewModel
@@ -36,13 +36,5 @@ class NavGateViewModel
                 scope = viewModelScope,
                 started = SharingStarted.WhileSubscribed(5_000),
                 initialValue = false,
-            )
-
-        /** Null until DataStore loads, so an already-answered user never sees a first-run flash. */
-        val compassDisclosureChoice: StateFlow<String?> =
-            settingsRepository.getCompassDisclosureChoice().stateIn(
-                scope = viewModelScope,
-                started = SharingStarted.WhileSubscribed(5_000),
-                initialValue = null,
             )
     }

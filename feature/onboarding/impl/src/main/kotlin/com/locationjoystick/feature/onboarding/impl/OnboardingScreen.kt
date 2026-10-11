@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -89,7 +90,8 @@ fun OnboardingRoute(
         uiState = uiState,
         onCheckPermissions = viewModel::checkPermissions,
         onSkipMockLocationCheck = viewModel::skipMockLocationCheck,
-        onCompassDisclosureAccepted = viewModel::recordCompassDisclosureAccepted,
+        onCompassDisclosureAnswered = viewModel::recordCompassDisclosure,
+        onCompassDisclosureSkipped = viewModel::skipCompassDisclosure,
         onSetupComplete = {
             viewModel.onSetupComplete()
             onSetupComplete()
@@ -111,7 +113,8 @@ internal fun OnboardingScreen(
     uiState: OnboardingUiState,
     onCheckPermissions: () -> Unit,
     onSkipMockLocationCheck: () -> Unit = {},
-    onCompassDisclosureAccepted: () -> Unit = {},
+    onCompassDisclosureAnswered: (accepted: Boolean) -> Unit = {},
+    onCompassDisclosureSkipped: () -> Unit = {},
     onSetupComplete: () -> Unit,
     isSpoofing: Boolean = false,
     onToggleSpoofing: () -> Unit = {},
@@ -123,6 +126,16 @@ internal fun OnboardingScreen(
     val context = LocalContext.current
     var showSkipMockLocationDialog by remember { mutableStateOf(false) }
     var showCompassDisclosure by remember { mutableStateOf(false) }
+
+    // Shown on entry so Play's reviewers meet it in the first-run flow. Onboarding only runs once, so
+    // installs that already finished it never reach this prompt.
+    LaunchedEffect(uiState.compassDisclosureChoice) {
+        if (uiState.compassDisclosureChoice == AppConstants.CompassTrackingConstants.DISCLOSURE_UNANSWERED &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+        ) {
+            showCompassDisclosure = true
+        }
+    }
 
     val locationPermissionLauncher =
         rememberLauncherForActivityResult(
@@ -292,8 +305,8 @@ internal fun OnboardingScreen(
 
             // Play's Accessibility API policy wants the disclosure in the normal usage flow, not only
             // behind Settings menus. Onboarding is the one screen every install walks through, so the
-            // optional compass step lives here (every API level; Decline records nothing) and shows the
-            // disclosure right before Android's Accessibility settings open.
+            // compass step lives here (every API level) and re-opens the disclosure that is also shown on
+            // entry, right before Android's Accessibility settings open.
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
@@ -341,7 +354,7 @@ internal fun OnboardingScreen(
         CompassDisclosureDialog(
             onAccept = {
                 showCompassDisclosure = false
-                onCompassDisclosureAccepted()
+                onCompassDisclosureAnswered(true)
                 // Below API 30 the service is disabled, so the settings screen has nothing to turn on.
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     context.startActivity(
@@ -349,7 +362,14 @@ internal fun OnboardingScreen(
                     )
                 }
             },
-            onDecline = { showCompassDisclosure = false },
+            onDecline = {
+                showCompassDisclosure = false
+                onCompassDisclosureAnswered(false)
+            },
+            onSkip = {
+                showCompassDisclosure = false
+                onCompassDisclosureSkipped()
+            },
         )
     }
 

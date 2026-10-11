@@ -8,6 +8,7 @@ import android.view.accessibility.AccessibilityManager
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.locationjoystick.core.common.constants.AppConstants
 import com.locationjoystick.core.common.util.LocaleContextWrapper
 import com.locationjoystick.core.common.util.isMockLocationEnabled
 import com.locationjoystick.core.common.util.isOverlayPermissionGranted
@@ -42,6 +43,11 @@ class OnboardingViewModel
 
         init {
             checkPermissions()
+            viewModelScope.launch {
+                settingsRepository.getCompassDisclosureChoice().collect { choice ->
+                    _uiState.update { it.copy(compassDisclosureChoice = choice) }
+                }
+            }
         }
 
         fun checkPermissions() {
@@ -69,9 +75,15 @@ class OnboardingViewModel
                 ?.any { it.id.contains("CompassAccessibilityService") }
                 ?: false
 
-        /** Records acceptance of the Accessibility disclosure; Decline records nothing so Tap to Walk asks again. */
-        fun recordCompassDisclosureAccepted() {
-            viewModelScope.launch { settingsRepository.recordCompassDisclosure(true) }
+        fun recordCompassDisclosure(accepted: Boolean) {
+            viewModelScope.launch { settingsRepository.recordCompassDisclosure(accepted) }
+        }
+
+        /** Marks the prompt as asked without consenting; Tap to Walk entry points still re-show it. */
+        fun skipCompassDisclosure() {
+            viewModelScope.launch {
+                settingsRepository.setCompassDisclosureChoice(AppConstants.CompassTrackingConstants.DISCLOSURE_SKIPPED)
+            }
         }
 
         fun onSetupComplete() {

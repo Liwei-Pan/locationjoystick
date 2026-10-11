@@ -159,7 +159,7 @@ AccessibilityService API, the data it reads (one screenshot), the purpose (compa
 that the screenshot stays on-device and nothing is collected or shared. Its title and body say
 "Accessibility" explicitly. It cannot be dismissed by back press or outside tap — only "Accept" or
 "Decline" (the wording from Play's prominent-disclosure guidance), plus a small "Skip" at the
-bottom right on the first-run prompt only (`onSkip`). Only "Accept" opens
+bottom right on the onboarding prompt only (`onSkip`). Only "Accept" opens
 `ACTION_ACCESSIBILITY_SETTINGS`; Skip consents to nothing and opens nothing. A "Read the Tap to
 Walk guide" link opens `AppConstants.AppInfo.TAP_TO_WALK_GUIDE_URL` (the wiki page), so the
 in-app disclosure stands on its own and the long-form explanation stays one tap away.
@@ -167,24 +167,24 @@ in-app disclosure stands on its own and the long-form explanation stays one tap 
 Play also rejected a build (2400) whose disclosure was reachable only through Settings menus:
 the disclosure must sit in the normal usage flow. It therefore appears at every point where a user
 reaches the feature, always immediately before Android's own accessibility consent screen, and
-the first of them is the first arrival at the Map, which every install reaches:
+the first of them is onboarding, which every new install walks through:
 
 | Entry point | Where |
 |---|---|
-| First Map arrival | `LjApp` calls `MainActivity`'s dialog once when the route is the Map, API >= 30 and the stored choice is still unanswered (`shouldShowFirstRunCompassDisclosure`). Buttons: Accept, Decline, Skip. Every button stores an answer (`accepted`, `declined`, `skipped`), so it never auto-shows again |
-| Onboarding | Optional "Compass orientation" card below the three required steps (every API level, skip line first, not counted in "Step X of 3", never blocks "Start"). "Review and turn on" opens the disclosure; Accept records the choice and opens Android's Accessibility settings on API 30+ (`OnboardingScreen.kt`). Decline records nothing, so the Tap to Walk switch asks again until Accept. the first-run prompt covers installs that skip it |
+| Onboarding (on entry) | `OnboardingScreen` opens the dialog by itself when the stored choice is unanswered and API >= 30. Buttons: Accept (records `accepted`, opens Android's Accessibility settings), Decline (`declined`), Skip (`skipped`). Every button stores an answer, so it never auto-shows again. Installs that finished onboarding before this shipped never reach it |
+| Onboarding card | Optional "Compass orientation" card below the three required steps (every API level, skip line first, not counted in "Step X of 3", never blocks "Start"). "Review and turn on" reopens the same disclosure (`OnboardingScreen.kt`) |
 | Turning Tap to Walk on | The Tap to Walk switch opens the same screen, with the two overlay caveats above the disclosure text and "Accept" as the accept label (`SettingsMenusSubScreen.kt`). Below API 30 only the caveats are shown, with "Enable anyway" |
 | Tapping the widget crosshair | `FloatingWidgetService.onTapToWalkClicked()` launches `MainActivity` with `EXTRA_SHOW_COMPASS_DISCLOSURE`; the overlay opens on the next tap |
 | Settings compass row | "Open Settings" in `CompassOrientationSection` |
 
 Play Console side is done and needs no re-checking: declaration form, per-submission video,
 store-listing mention, and no stale artifacts on other tracks. Rejections after build 2400 came from
-reviewers not reaching the in-app disclosure, hence the onboarding card. A skippable card still
-counts as an in-flow disclosure: it is on the first-run screen every install walks through, and
-the service stays gated on an in-app accept regardless.
+reviewers not reaching the in-app disclosure, hence the onboarding auto-show. It is on the first-run
+screen every new install walks through, and the service stays gated on an in-app accept regardless.
+The Map never auto-shows it, so existing installs see no change.
 
 The answer is persisted in `COMPASS_DISCLOSURE_CHOICE` (`accepted`, `declined`, `skipped`, or empty
-when unanswered). Only the first-run prompt is gated on "unanswered"; the Tap to Walk switch, the
+when unanswered). Only the onboarding auto-show is gated on "unanswered"; the Tap to Walk switch, the
 crosshair and the Settings row keep asking until the choice is `accepted`, so a Decline or Skip
 never locks the feature out.
 The Settings compass row's "Open Settings" button always prompts, because it is the one path that
