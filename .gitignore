@@ -30,6 +30,8 @@ Thumbs.db
 
 # Python
 **__pycache__
+# Bearing-registration bench: local venv and device-captured dataset (scripts/registration_bench.py)
+scripts/registration-bench/
 
 # Local Play Console demo recordings (scripts/playstore-foreground-location-video.sh)
 *.mp4
