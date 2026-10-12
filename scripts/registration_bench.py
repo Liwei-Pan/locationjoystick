@@ -36,8 +36,21 @@ def similarity_from_points(src, dst):
     return np.array([[p[0], -p[1], p[2]], [p[1], p[0], p[3]]])
 
 
+def _apply(m, pts):
+    """Map Nx2 points through a 2x3 affine or 3x3 homography (with perspective divide)."""
+    m = np.asarray(m, dtype=np.float64)
+    homog = np.hstack([pts, np.ones((len(pts), 1))])
+    out = homog @ m.T
+    if m.shape == (3, 3):
+        return out[:, :2] / out[:, 2:3]
+    return out
+
+
 def landing_error_m(est, truth, width, height, m_per_px):
-    """Max distance (m) between where est and truth put 8 probe pixels: 4 corners + 4 edge midpoints."""
+    """Max distance (m) between where est and truth put 8 probe pixels: 4 corners + 4 edge midpoints.
+
+    est and truth may each be a 2x3 similarity or a 3x3 homography (pitched game camera).
+    """
     probes = np.array(
         [
             [0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1],
@@ -45,10 +58,8 @@ def landing_error_m(est, truth, width, height, m_per_px):
         ],
         dtype=np.float64,
     )
-    ones = np.ones((len(probes), 1))
-    homog = np.hstack([probes, ones])
-    pe = homog @ np.asarray(est).T
-    pt = homog @ np.asarray(truth).T
+    pe = _apply(est, probes)
+    pt = _apply(truth, probes)
     return float(np.max(np.linalg.norm(pe - pt, axis=1)) * m_per_px)
 
 
@@ -111,3 +122,28 @@ def register_logpolar(ref_gray, game_gray):
         if score > best_score:
             best, best_score = m, score
     return best
+
+
+def register_homography(ref_gray, game_gray, ratio=0.8, reproj_px=3.0):
+    """Perspective (pitched camera) registration: 3x3 homography mapping ref pixels to game pixels.
+
+    ORB features on both images, Hamming matching with Lowe's ratio test, then RANSAC findHomography.
+    Returns (H, inlier_ratio) or (None, 0.0) when there are too few matches. inlier_ratio is the
+    verification score: RANSAC inliers over ratio-test matches.
+    """
+    orb = cv2.ORB_create(nfeatures=2000)
+    kp_ref, des_ref = orb.detectAndCompute(ref_gray, None)
+    kp_game, des_game = orb.detectAndCompute(game_gray, None)
+    if des_ref is None or des_game is None or len(kp_ref) < 4 or len(kp_game) < 4:
+        return None, 0.0
+    matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
+    knn = matcher.knnMatch(des_ref, des_game, k=2)
+    good = [p[0] for p in knn if len(p) == 2 and p[0].distance < ratio * p[1].distance]
+    if len(good) < 4:
+        return None, 0.0
+    src = np.float32([kp_ref[m.queryIdx].pt for m in good])
+    dst = np.float32([kp_game[m.trainIdx].pt for m in good])
+    h, inliers = cv2.findHomography(src, dst, cv2.RANSAC, reproj_px)
+    if h is None:
+        return None, 0.0
+    return h, float(inliers.sum()) / len(good)

@@ -66,6 +66,31 @@ def test_chamfer_accepts_true_alignment_and_rejects_unrelated_map():
     assert aligned <= tau < wrong, (aligned, wrong)
 
 
+def textured_map(seed, size=512):
+    """Blurred noise plus strokes: enough local structure for AKAZE to find stable keypoints."""
+    rng = np.random.default_rng(seed)
+    noise = rng.integers(0, 256, size=(size, size), dtype=np.uint8)
+    img = cv2.GaussianBlur(noise, (0, 0), 2.0)
+    img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
+    return cv2.addWeighted(img, 0.7, synthetic_map(seed, size), 0.3, 0)
+
+
+def test_homography_recovers_pitched_view_and_scores_unrelated_lower():
+    ref = textured_map(seed=4)
+    size = 512
+    src = np.float32([[0, 0], [size, 0], [size, size], [0, size]])
+    # Pitched camera: the top edge of the view is narrower than the bottom edge.
+    dst = np.float32([[size * 0.2, 0], [size * 0.8, 0], [size, size], [0, size]])
+    true = cv2.getPerspectiveTransform(src, dst)
+    game = cv2.warpPerspective(ref, true, (size, size))
+    est, inlier_ratio = rb.register_homography(ref, game)
+    assert est is not None
+    err = rb.landing_error_m(est, true, size, size, 1.0)
+    assert err < 2.0, err
+    _, wrong_ratio = rb.register_homography(textured_map(seed=5), game)
+    assert inlier_ratio > wrong_ratio, (inlier_ratio, wrong_ratio)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:
