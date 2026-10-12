@@ -36,7 +36,7 @@
 #
 # Output files (25 canonical PNGs). Each file's number prefix is its step
 # number, so --steps N writes N_*.png (step 19 runs out of order, see below):
-#   01_idle, 02_map, 03_routes, 04_favorites, 05_settings,
+#   01_idle, 02_map, 03_routes, 04_favorites (with a "Local spots" group), 05_settings,
 #   06_map_routes_sheet, 07_map_favorites_sheet, 08_map_roaming_sheet,
 #   09_route_creator, 10_route_detail, 11_map_picker,
 #   12_qr_share,
@@ -451,6 +451,31 @@ seed_favorites_if_needed() {
     tap_text_exact "Save"
     wait_s 2 "Saving favorite"
   done
+}
+
+# Put the first favorite into a "Local spots" group so the Favorites screen and
+# the map favorites sheet (04, 07, 16) show a group header above the rest. Expects
+# the Favorites screen to be open. No-op when the group already exists.
+group_seed_favorite_if_needed() {
+  local dump
+  dump=$(ui_dump)
+  if grep -q 'Local spots' "$dump" 2>/dev/null; then
+    rm -f "$dump"
+    log "Favorites group found — no grouping needed."
+    return 0
+  fi
+  rm -f "$dump"
+  log "Grouping first favorite under \"Local spots\"..."
+  tap_text "More options" || return 0
+  wait_s 1 "Menu opening"
+  tap_text "Move to group" || return 0
+  wait_s 1 "Dialog opening"
+  tap_edit_field 0
+  wait_s 1
+  $ADB shell input text "Local%sspots"
+  wait_s 1
+  tap_text_exact "Create and move"
+  wait_s 2 "Grouping favorite"
 }
 
 # Start MockLocationService via direct intent (ACTION_START with default coords).
@@ -951,6 +976,7 @@ if $AUTO; then
   tap_text_below "Favorites" "$CARD_Y_MIN"
   wait_s 2 "Favorites loading"
   seed_favorites_if_needed
+  group_seed_favorite_if_needed
 fi
 
 # ── 01. IdleScreen ───────────────────────────────────────────────────────────

@@ -33,6 +33,7 @@ object DatabaseModule {
                 LjDatabase.MIGRATION_3_4,
                 LjDatabase.MIGRATION_4_5,
                 LjDatabase.MIGRATION_5_6,
+                LjDatabase.MIGRATION_6_7,
             ).build()
 
     @Provides

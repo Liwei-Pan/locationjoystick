@@ -57,6 +57,48 @@ class FavoriteRepositoryTest {
         }
 
     @Test
+    fun `renameCategory renames user group and leaves hot favorites`() =
+        runTest {
+            repository.addFavorite("u1", "Park", LatLng(1.0, 1.0), category = "Local")
+            repository.addFavorite("hot_x", "Spot", LatLng(2.0, 2.0), category = "Local")
+
+            repository.renameCategory("Local", "Home turf")
+
+            repository.getFavorites().test {
+                val byId = awaitItem().associateBy { it.id }
+                assertEquals("Home turf", byId.getValue("u1").category)
+                assertEquals("Local", byId.getValue("hot_x").category)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `renameCategory to null ungroups members`() =
+        runTest {
+            repository.addFavorite("u1", "Park", LatLng(1.0, 1.0), category = "Local")
+
+            repository.renameCategory("Local", null)
+
+            repository.getFavorites().test {
+                assertEquals(null, awaitItem().single().category)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `setCategory ignores hot favorites`() =
+        runTest {
+            repository.addFavorite("hot_x", "Spot", LatLng(2.0, 2.0), category = "France")
+
+            repository.setCategory("hot_x", "Mine")
+
+            repository.getFavorites().test {
+                assertEquals("France", awaitItem().single().category)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
     fun `addFavorite persists category`() =
         runTest {
             repository.addFavorite(

@@ -59,9 +59,10 @@ class RoutesViewModel
                 settingsRepository.getRoutesSortMode(),
                 settingsRepository.getHideTeleportFeatures(),
                 locationRepository.isRoadRouteFetchInFlight,
-            ) { routes, sortMode, hideTeleportFeatures, isRoadRouteFetchInFlight ->
+                settingsRepository.getRoutesManualOrder(),
+            ) { routes, sortMode, hideTeleportFeatures, isRoadRouteFetchInFlight, manualOrder ->
                 RoutesUiState(
-                    routes = routes.sortedBySavedItemMode(sortMode) { it.name },
+                    routes = routes.sortedBySavedItemMode(sortMode, manualOrder, { it.id }) { it.name },
                     isLoading = false,
                     sortMode = sortMode,
                     hideTeleportFeatures = hideTeleportFeatures,
@@ -98,6 +99,11 @@ class RoutesViewModel
                 initialValue = RoutePlaybackState(),
             )
 
+        /** Persists a drag-set order; picking a sort mode later replaces it. */
+        fun setManualOrder(ids: List<String>) {
+            viewModelScope.launch { settingsRepository.setRoutesManualOrder(ids) }
+        }
+
         fun setSortMode(mode: SavedItemSortMode) {
             viewModelScope.launch {
                 settingsRepository.setRoutesSortMode(mode)
@@ -108,6 +114,20 @@ class RoutesViewModel
             viewModelScope.launch {
                 routeRepository.deleteRoute(routeId)
             }
+        }
+
+        fun moveToGroup(
+            routeId: String,
+            group: String?,
+        ) {
+            viewModelScope.launch { routeRepository.setCategory(routeId, group) }
+        }
+
+        fun renameGroup(
+            from: String,
+            to: String?,
+        ) {
+            viewModelScope.launch { routeRepository.renameCategory(from, to) }
         }
 
         fun renameRoute(

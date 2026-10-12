@@ -45,6 +45,21 @@ class AppPreferencesDataSourceTest {
         }
 
     @Test
+    fun `manual order round-trips and a sort mode clears it`() =
+        runTest {
+            assertEquals(emptyList<String>(), dataSource.getFavoritesManualOrder().first())
+
+            dataSource.setFavoritesManualOrder(listOf("b", "a"))
+            dataSource.setRoutesManualOrder(listOf("r2", "r1"))
+            assertEquals(listOf("b", "a"), dataSource.getFavoritesManualOrder().first())
+
+            dataSource.setFavoritesSortMode(SavedItemSortMode.NAME_ASCENDING)
+
+            assertEquals(emptyList<String>(), dataSource.getFavoritesManualOrder().first())
+            assertEquals(listOf("r2", "r1"), dataSource.getRoutesManualOrder().first())
+        }
+
+    @Test
     fun `legacy sort booleans migrate`() =
         runTest {
             fakeDataStore.updateData { prefs ->

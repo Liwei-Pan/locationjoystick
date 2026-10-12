@@ -22,4 +22,7 @@ data class ExportData(
     val routesSortMode: SavedItemSortMode = SavedItemSortMode.NEWEST_FIRST,
     val favoritesSortMode: SavedItemSortMode = SavedItemSortMode.NEWEST_FIRST,
     val homeFavoriteId: String? = null,
+    /** Drag-set item order (ids, top first). Empty = follow the sort mode. */
+    val favoritesManualOrder: List<String> = emptyList(),
+    val routesManualOrder: List<String> = emptyList(),
 )

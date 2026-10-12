@@ -22,6 +22,7 @@ data class RouteEntity(
     val randomizeTeleportOrder: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
+    val category: String? = null,
 )
 
 /**
@@ -39,6 +40,7 @@ fun RouteEntity.toDomain(waypoints: List<WaypointEntity>): Route =
         randomizeTeleportOrder = randomizeTeleportOrder,
         createdAt = createdAt,
         updatedAt = updatedAt,
+        category = category,
     )
 
 fun Route.toEntity(): RouteEntity =
@@ -51,4 +53,5 @@ fun Route.toEntity(): RouteEntity =
         randomizeTeleportOrder = randomizeTeleportOrder,
         createdAt = createdAt,
         updatedAt = updatedAt,
+        category = category,
     )

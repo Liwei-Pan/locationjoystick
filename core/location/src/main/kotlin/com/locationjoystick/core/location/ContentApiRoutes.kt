@@ -178,6 +178,7 @@ class ContentApiRoutes
                     randomizeTeleportOrder = json.optBoolean("randomizeTeleportOrder", false),
                     createdAt = existing?.createdAt ?: now,
                     updatedAt = now,
+                    category = existing?.category,
                 )
             val result = runBlocking { if (existing == null) routeRepository.insertRoute(saved) else routeRepository.updateRoute(saved) }
             return result.fold({ ok(if (existing == null) 201 else 200, routeJson(saved)) }, { INTERNAL })

@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -50,6 +50,8 @@ import com.locationjoystick.core.common.util.formatCapturedPointsForClipboard
 import com.locationjoystick.core.designsystem.LjIcons
 import com.locationjoystick.core.designsystem.component.DeleteItemType
 import com.locationjoystick.core.designsystem.component.EmptyState
+import com.locationjoystick.core.designsystem.component.GroupDialogState
+import com.locationjoystick.core.designsystem.component.GroupDialogs
 import com.locationjoystick.core.designsystem.component.ListSearchField
 import com.locationjoystick.core.designsystem.component.LjActionSheetRow
 import com.locationjoystick.core.designsystem.component.LjDeleteConfirmDialog
@@ -58,15 +60,21 @@ import com.locationjoystick.core.designsystem.component.LjListItemCardSkeletonLi
 import com.locationjoystick.core.designsystem.component.LjOverflowMenuSectionLabel
 import com.locationjoystick.core.designsystem.component.LjPrimaryButton
 import com.locationjoystick.core.designsystem.component.LjScaffold
+import com.locationjoystick.core.designsystem.component.MoveToGroupMenuItem
 import com.locationjoystick.core.designsystem.component.RouteStartSheetContent
 import com.locationjoystick.core.designsystem.component.SavedItemSortMenu
 import com.locationjoystick.core.designsystem.component.WideContentClamp
+import com.locationjoystick.core.designsystem.component.groupForDisplay
+import com.locationjoystick.core.designsystem.component.groupedItems
+import com.locationjoystick.core.designsystem.component.rememberCollapsedGroups
+import com.locationjoystick.core.designsystem.component.rememberGroupReorder
 import com.locationjoystick.core.designsystem.component.rememberLjSheetState
 import com.locationjoystick.core.designsystem.component.writePlainText
 import com.locationjoystick.core.location.rememberSpoofToggleState
 import com.locationjoystick.core.model.RouteStartConfig
 import com.locationjoystick.core.model.RouteType
 import com.locationjoystick.core.model.distanceTo
+import com.locationjoystick.core.model.isHot
 import com.locationjoystick.core.model.matchesSearch
 import com.locationjoystick.core.model.startWaypoint
 import com.locationjoystick.feature.routes.impl.R
@@ -116,6 +124,9 @@ fun RoutesRoute(
         onResumeReplay = viewModel::resumeReplay,
         onStopReplay = viewModel::stopReplay,
         onSortModeSelected = viewModel::setSortMode,
+        onMoveToGroup = viewModel::moveToGroup,
+        onRenameGroup = viewModel::renameGroup,
+        onReorder = viewModel::setManualOrder,
         bottomBar = bottomBar,
     )
 }
@@ -164,12 +175,17 @@ internal fun RoutesScreen(
     onToggleSpoofing: () -> Unit = {},
     locationLabel: String? = null,
     onSortModeSelected: (com.locationjoystick.core.model.SavedItemSortMode) -> Unit = {},
+    onMoveToGroup: (String, String?) -> Unit = { _, _ -> },
+    onRenameGroup: (String, String?) -> Unit = { _, _ -> },
+    onReorder: (List<String>) -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
 ) {
     var deletingRoute by remember { mutableStateOf<com.locationjoystick.core.model.Route?>(null) }
     var sharingRoute by remember { mutableStateOf<com.locationjoystick.core.model.Route?>(null) }
     var showAddOptionsSheet by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    val collapsedGroups = rememberCollapsedGroups()
+    val groupDialogs = remember { GroupDialogState<com.locationjoystick.core.model.Route>() }
 
     LjScaffold(
         title = stringResource(R.string.routes_screen_title),
@@ -236,23 +252,40 @@ internal fun RoutesScreen(
                         }
 
                         else -> {
+                            val listState = rememberLazyListState()
+                            val searching = searchQuery.isNotBlank()
+                            val allSections =
+                                remember(uiState.routes) {
+                                    groupForDisplay(uiState.routes, { it.category }, { it.isHot() })
+                                }
+                            val filteredSections =
+                                remember(filteredRoutes) {
+                                    groupForDisplay(filteredRoutes, { it.category }, { it.isHot() })
+                                }
+                            val reorder = rememberGroupReorder(listState, allSections, { it.id }, onReorder)
                             LazyColumn(
+                                state = listState,
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                items(
-                                    items = filteredRoutes,
-                                    key = { it.id },
+                                groupedItems(
+                                    groups = if (searching) filteredSections else reorder.groups,
+                                    collapsed = collapsedGroups,
+                                    forceExpanded = searching,
+                                    reorder = if (searching) null else reorder,
+                                    itemKey = { it.id },
+                                    onRenameGroup = { groupDialogs.renaming = it },
+                                    onDeleteGroup = { groupDialogs.deleting = it },
                                 ) { route ->
                                     RouteCard(
-                                        modifier = Modifier.animateItem(),
                                         route = route,
                                         playbackState = playbackState,
                                         onNavigateToEdit = { onNavigateToDetail(route.id) },
                                         onDeleteRoute = { deletingRoute = route },
                                         onShare = { sharingRoute = route },
                                         onExport = { onExportRoute(route) },
+                                        onMoveToGroup = if (route.isHot()) null else ({ groupDialogs.moving = route }),
                                         onStartReplay = onStartReplay,
                                         onTeleportToRouteStart = onTeleportToRouteStart,
                                         onPauseReplay = onPauseReplay,
@@ -268,6 +301,22 @@ internal fun RoutesScreen(
             }
         }
     }
+
+    GroupDialogs(
+        state = groupDialogs,
+        groupNames =
+            remember(uiState.routes) {
+                uiState.routes
+                    .filter { !it.isHot() }
+                    .mapNotNull { it.category }
+                    .distinct()
+                    .sorted()
+            },
+        currentGroupOf = { it.category },
+        onMove = { route, group -> onMoveToGroup(route.id, group) },
+        onRename = { from, to -> onRenameGroup(from, to) },
+        onDelete = { onRenameGroup(it, null) },
+    )
 
     deletingRoute?.let { route ->
         LjDeleteConfirmDialog(
@@ -360,6 +409,7 @@ private fun RouteCard(
     modifier: Modifier = Modifier,
     hideTeleportFeatures: Boolean = false,
     isRoadRouteFetchInFlight: Boolean = false,
+    onMoveToGroup: (() -> Unit)? = null,
 ) {
     val isActiveRoute = playbackState.activeRouteId == route.id
     val isPlaying = isActiveRoute && playbackState.isPlaying
@@ -450,6 +500,12 @@ private fun RouteCard(
                             },
                             leadingIcon = { Icon(LjIcons.Edit, contentDescription = null) },
                         )
+                        if (onMoveToGroup != null) {
+                            MoveToGroupMenuItem {
+                                menuExpanded = false
+                                onMoveToGroup()
+                            }
+                        }
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.routes_screen_share)) },
                             onClick = {

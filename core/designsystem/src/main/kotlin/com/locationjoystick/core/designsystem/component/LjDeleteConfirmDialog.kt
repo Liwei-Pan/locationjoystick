@@ -18,6 +18,7 @@ enum class DeleteItemType(
 ) {
     FAVORITE(R.string.delete_confirm_dialog_message_favorite),
     ROUTE(R.string.delete_confirm_dialog_message_route),
+    GROUP(R.string.delete_confirm_dialog_message_group),
 }
 
 /**

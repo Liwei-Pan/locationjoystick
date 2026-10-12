@@ -17,4 +17,4 @@ fun matchesNameSearch(
 
 fun FavoriteLocation.matchesSearch(query: String): Boolean = matchesNameSearch(name, query, extra = category)
 
-fun Route.matchesSearch(query: String): Boolean = matchesNameSearch(name, query)
+fun Route.matchesSearch(query: String): Boolean = matchesNameSearch(name, query, extra = category)

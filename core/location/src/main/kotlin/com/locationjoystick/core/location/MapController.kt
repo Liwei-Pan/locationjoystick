@@ -160,7 +160,8 @@ class MapController
                 combine(
                     routeRepository.getRoutes(),
                     settingsRepository.getRoutesSortMode(),
-                ) { routes, sortMode -> routes.sortedBySavedItemMode(sortMode) { it.name } }
+                    settingsRepository.getRoutesManualOrder(),
+                ) { routes, sortMode, manualOrder -> routes.sortedBySavedItemMode(sortMode, manualOrder, { it.id }) { it.name } }
                     .collect { sorted -> _sharedState.update { it.copy(routes = sorted) } }
             }
         }
@@ -170,7 +171,8 @@ class MapController
                 combine(
                     favoriteRepository.getFavorites(),
                     settingsRepository.getFavoritesSortMode(),
-                ) { favorites, sortMode -> favorites.sortedBySavedItemMode(sortMode) { it.name } }
+                    settingsRepository.getFavoritesManualOrder(),
+                ) { favorites, sortMode, manualOrder -> favorites.sortedBySavedItemMode(sortMode, manualOrder, { it.id }) { it.name } }
                     .collect { sorted -> _sharedState.update { it.copy(favorites = sorted) } }
             }
             appScope.launch {

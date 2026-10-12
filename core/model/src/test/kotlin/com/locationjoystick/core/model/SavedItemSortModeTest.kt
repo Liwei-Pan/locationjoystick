@@ -30,4 +30,23 @@ class SavedItemSortModeTest {
             items.sortedBySavedItemMode(SavedItemSortMode.OLDEST_FIRST) { it.name }.map { it.name },
         )
     }
+
+    @Test
+    fun `manual order wins and unlisted items stay first`() {
+        val manual = listOf("charlie", "Alpha", "beta")
+        val withNew = items + Item("delta", 400L)
+
+        assertEquals(
+            listOf("delta", "charlie", "Alpha", "beta"),
+            withNew.sortedBySavedItemMode(SavedItemSortMode.NEWEST_FIRST, manual, { it.name }) { it.name }.map { it.name },
+        )
+    }
+
+    @Test
+    fun `empty manual order keeps the sort mode`() {
+        assertEquals(
+            items.sortedBySavedItemMode(SavedItemSortMode.NAME_ASCENDING) { it.name },
+            items.sortedBySavedItemMode(SavedItemSortMode.NAME_ASCENDING, emptyList(), { it.name }) { it.name },
+        )
+    }
 }

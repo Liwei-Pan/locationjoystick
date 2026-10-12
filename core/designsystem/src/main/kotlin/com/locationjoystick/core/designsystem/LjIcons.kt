@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
@@ -131,6 +132,7 @@ object LjIcons {
     val Edit = Icons.Rounded.EditNote
     val ExpandLess = Icons.Rounded.ExpandLess
     val ExpandMore = Icons.Rounded.ExpandMore
+    val Folder = Icons.Rounded.Folder
     val Fullscreen = Icons.Rounded.Fullscreen
     val FullscreenExit = Icons.Rounded.FullscreenExit
     val Explore = Icons.Rounded.Explore

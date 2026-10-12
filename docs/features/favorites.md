@@ -27,9 +27,18 @@ The Sort menu is available on the main Favorites screen, widget favorites panel,
 map's favorites panel. It offers **A–Z**, **Z–A**, **Newest saved**, and **Oldest saved**. The
 selection persists and is shared across those surfaces.
 
-## Categories
+## Groups
 
-`FavoriteLocation.category` is an optional label (`String?`, `null` for most user-added favorites). When set, the Favorites list groups entries under a header for their category; uncategorized favorites are shown last, without a header. Hot locations get their category populated automatically (see below) — user-added favorites have no category unless imported from a source that sets one.
+`FavoriteLocation.category` holds the group name (`null` = ungrouped). Hot locations (`hot_` ids) use it for their country and are read-only. A user can create groups for their own favorites; the same mechanism and UI exist for routes (docs/features/routes.md, "Groups").
+
+- **Create / move**: overflow menu → **Move to group**. The dialog lists existing groups, **Ungrouped**, and a field that creates a new group and moves the favorite into it. A group exists only while it has members.
+- **Rename**: the group header's menu → **Rename group**. Renames the category on every member.
+- **Delete**: the header menu → **Delete group**. Members are kept and become ungrouped.
+- **Collapse**: tap a header. Collapse state is `remember`d, not saved. An active search expands every group so matches stay visible.
+- **Search**: also matches the group name.
+- **Order**: user groups (A–Z), then ungrouped favorites, then hot country groups (A–Z). User groups sit above hot lists so local places stay on top. A user group may share a name with a hot country; they stay separate sections.
+- **Everywhere**: the Favorites screen, the map favorites sheet, the widget panel and the route-creator jump list all render through `groupedItems` (`:core:designsystem/GroupedList.kt`). Rename, delete and move are on the Favorites screen only; the pickers show headers and collapse.
+- **Reordering groups by drag** is not supported; order is alphabetical.
 
 ## Add Flows
 

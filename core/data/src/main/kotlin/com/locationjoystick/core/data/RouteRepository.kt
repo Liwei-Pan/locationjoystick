@@ -197,6 +197,35 @@ class RouteRepository
                 }
             }
 
+        /** Moves [routeId] into user group [category] (null = ungrouped). Hot routes stay ungrouped. */
+        suspend fun setCategory(
+            routeId: String,
+            category: String?,
+        ): Result<Unit> =
+            withContext(ioDispatcher) {
+                runCatching {
+                    val entity = routeDao.getById(routeId)
+                    if (entity != null && !entity.id.startsWith(HOT_ROUTE_ID_PREFIX)) {
+                        routeDao.update(entity.copy(category = category))
+                    }
+                }.onFailure { e -> Log.e(TAG, "Failed to set route category: $routeId", e) }
+            }
+
+        /** Renames user group [from] to [to], or ungroups its members when [to] is null. */
+        suspend fun renameCategory(
+            from: String,
+            to: String?,
+        ): Result<Unit> =
+            withContext(ioDispatcher) {
+                runCatching {
+                    routeDao
+                        .getAll()
+                        .first()
+                        .filter { it.category == from && !it.id.startsWith(HOT_ROUTE_ID_PREFIX) }
+                        .forEach { routeDao.update(it.copy(category = to)) }
+                }.onFailure { e -> Log.e(TAG, "Failed to rename route group: $from", e) }
+            }
+
         suspend fun setRouteSpeedProfile(
             routeId: String,
             speedProfileId: String?,

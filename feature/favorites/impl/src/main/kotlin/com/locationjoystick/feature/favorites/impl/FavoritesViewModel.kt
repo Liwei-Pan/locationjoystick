@@ -40,14 +40,17 @@ class FavoritesViewModel
 
         val uiState: StateFlow<FavoritesUiState> =
             combine(
-                favoriteRepository.getFavorites(),
+                favoriteRepository.getFavorites().combine(settingsRepository.getFavoritesManualOrder()) { favorites, order ->
+                    favorites to
+                        order
+                },
                 pendingDeleteIdFlow,
                 settingsRepository.getFavoritesSortMode(),
                 settingsRepository.getHideTeleportFeatures(),
                 settingsRepository.getHomeFavoriteId(),
-            ) { favorites, pendingDeleteId, sortMode, hideTeleportFeatures, homeFavoriteId ->
+            ) { (favorites, manualOrder), pendingDeleteId, sortMode, hideTeleportFeatures, homeFavoriteId ->
                 FavoritesUiState(
-                    favorites = favorites.sortedBySavedItemMode(sortMode) { it.name },
+                    favorites = favorites.sortedBySavedItemMode(sortMode, manualOrder, { it.id }) { it.name },
                     isLoading = false,
                     pendingDeleteId = pendingDeleteId,
                     sortMode = sortMode,
@@ -91,6 +94,11 @@ class FavoritesViewModel
                 initialValue = emptyMap(),
             )
 
+        /** Persists a drag-set order; picking a sort mode later replaces it. */
+        fun setManualOrder(ids: List<String>) {
+            viewModelScope.launch { settingsRepository.setFavoritesManualOrder(ids) }
+        }
+
         fun setSortMode(mode: SavedItemSortMode) {
             viewModelScope.launch {
                 settingsRepository.setFavoritesSortMode(mode)
@@ -122,6 +130,21 @@ class FavoritesViewModel
                 val current = settingsRepository.getHomeFavoriteId().first()
                 settingsRepository.setHomeFavoriteId(if (current == id) null else id)
             }
+        }
+
+        fun moveToGroup(
+            favoriteId: String,
+            group: String?,
+        ) {
+            viewModelScope.launch { favoriteRepository.setCategory(favoriteId, group) }
+        }
+
+        /** [to] null ungroups the members (group delete). */
+        fun renameGroup(
+            from: String,
+            to: String?,
+        ) {
+            viewModelScope.launch { favoriteRepository.renameCategory(from, to) }
         }
 
         fun deleteFavorite(favoriteId: String) {

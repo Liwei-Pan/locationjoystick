@@ -22,6 +22,10 @@ Pending GPX is a `StateFlow` held until the user dismisses or uses the paste she
 
 The overflow menu on each saved route is **Edit**, **Share**, **Export**, **Delete**. Share opens a dialog with the route's waypoints as paste-format `lat, lon` lines, with Copy and Send as message. Add actions live on a FAB that opens an action sheet (**Draw on map**, **Draw on map (follow roads)**, **Paste coordinates**, **Import GPX file**).
 
+## Groups
+
+`Route.category` (column `routes.category`, DB v7) is the user group name; `null` = ungrouped. Behaviour, ordering and UI are the same as favorites (docs/features/favorites.md, "Groups") and share `groupedItems`. Hot routes (`hot_route_` ids) cannot be moved and always show as ungrouped. Search also matches the group name. Updating a route over the Content API keeps its group.
+
 ## List search
 
 A search field at the top of the Routes screen filters by route name (case-insensitive substring

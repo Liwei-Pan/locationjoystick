@@ -13,6 +13,8 @@ data class Route(
     val randomizeTeleportOrder: Boolean = false,
     override val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
+    /** User group name; null = ungrouped. Hot routes (`hot_route_` ids) are never grouped. */
+    val category: String? = null,
 ) : HasCreatedAt
 
 /** Waypoint replay starts (and Teleport jumps to): first, or last when [isReverse]. */

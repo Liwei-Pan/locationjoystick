@@ -306,6 +306,19 @@ interface PreferencesDataSource {
 
     suspend fun setFavoritesSortMode(mode: SavedItemSortMode) = setFavoritesSortNewestFirst(mode != SavedItemSortMode.OLDEST_FIRST)
 
+    /**
+     * Manual favorites order (ids, top first) set by drag. Empty = follow the sort mode. Choosing a
+     * sort mode clears it, so the last action wins.
+     */
+    fun getFavoritesManualOrder(): Flow<List<String>> = kotlinx.coroutines.flow.flowOf(emptyList())
+
+    suspend fun setFavoritesManualOrder(ids: List<String>) {}
+
+    /** Same as [getFavoritesManualOrder] for routes. */
+    fun getRoutesManualOrder(): Flow<List<String>> = kotlinx.coroutines.flow.flowOf(emptyList())
+
+    suspend fun setRoutesManualOrder(ids: List<String>) {}
+
     /** Gets the GPS jitter idle speed variation percentage (0 = off). */
     fun getJitterSpeedIdleVariationPct(): Flow<Int>
 
@@ -583,6 +596,8 @@ class AppPreferencesDataSource
             val FAVORITES_SORT_NEWEST_FIRST = booleanPreferencesKey("favorites_sort_newest_first")
             val ROUTES_SORT_MODE = stringPreferencesKey("routes_sort_mode")
             val FAVORITES_SORT_MODE = stringPreferencesKey("favorites_sort_mode")
+            val ROUTES_MANUAL_ORDER = stringPreferencesKey("routes_manual_order")
+            val FAVORITES_MANUAL_ORDER = stringPreferencesKey("favorites_manual_order")
             val JITTER_SPEED_IDLE_VARIATION_PCT = intPreferencesKey("jitter_speed_idle_variation_pct")
             val JITTER_SPEED_MOVING_VARIATION_PCT = intPreferencesKey("jitter_speed_moving_variation_pct")
             val JITTER_SPEED_IDLE_WOBBLE_PROBABILITY_PCT =
@@ -1018,6 +1033,7 @@ class AppPreferencesDataSource
         override suspend fun setRoutesSortMode(mode: SavedItemSortMode) {
             dataStore.edit { prefs ->
                 prefs[Keys.ROUTES_SORT_MODE] = mode.name
+                prefs.remove(Keys.ROUTES_MANUAL_ORDER)
                 prefs[Keys.ROUTES_SORT_NEWEST_FIRST] = mode != SavedItemSortMode.OLDEST_FIRST
             }
         }
@@ -1035,7 +1051,29 @@ class AppPreferencesDataSource
         override suspend fun setFavoritesSortMode(mode: SavedItemSortMode) {
             dataStore.edit { prefs ->
                 prefs[Keys.FAVORITES_SORT_MODE] = mode.name
+                prefs.remove(Keys.FAVORITES_MANUAL_ORDER)
                 prefs[Keys.FAVORITES_SORT_NEWEST_FIRST] = mode != SavedItemSortMode.OLDEST_FIRST
+            }
+        }
+
+        override fun getFavoritesManualOrder(): Flow<List<String>> = manualOrder(Keys.FAVORITES_MANUAL_ORDER)
+
+        override suspend fun setFavoritesManualOrder(ids: List<String>) = setManualOrder(Keys.FAVORITES_MANUAL_ORDER, ids)
+
+        override fun getRoutesManualOrder(): Flow<List<String>> = manualOrder(Keys.ROUTES_MANUAL_ORDER)
+
+        override suspend fun setRoutesManualOrder(ids: List<String>) = setManualOrder(Keys.ROUTES_MANUAL_ORDER, ids)
+
+        // Unit separator: cannot appear in the uuid / hot ids that make up the list.
+        private fun manualOrder(key: Preferences.Key<String>): Flow<List<String>> =
+            dataStore.data.map { prefs -> prefs[key]?.split('\u001F')?.filter { it.isNotEmpty() }.orEmpty() }
+
+        private suspend fun setManualOrder(
+            key: Preferences.Key<String>,
+            ids: List<String>,
+        ) {
+            dataStore.edit { prefs ->
+                if (ids.isEmpty()) prefs.remove(key) else prefs[key] = ids.joinToString("\u001F")
             }
         }
 

@@ -69,4 +69,18 @@
     <string name="compass_disclosure_accept">"接受"</string>
     <string name="compass_disclosure_decline">"拒絕"</string>
     <string name="compass_disclosure_skip">"略過"</string>
+    <string name="delete_confirm_dialog_message_group">"此群組將被移除，其中的項目會保留並移到「未分組」。"</string>
+    <string name="grouped_list_ungrouped">"未分組"</string>
+    <string name="grouped_list_collapse_cd">"收合 %1$s"</string>
+    <string name="grouped_list_expand_cd">"展開 %1$s"</string>
+    <string name="grouped_list_group_options_cd">"群組 %1$s 的選項"</string>
+    <string name="grouped_list_rename_group">"重新命名群組"</string>
+    <string name="grouped_list_delete_group">"刪除群組"</string>
+    <string name="grouped_list_move_to_group">"移至群組"</string>
+    <string name="grouped_list_new_group">"新增群組"</string>
+    <string name="grouped_list_create_and_move">"建立並移動"</string>
+    <string name="grouped_list_group_name">"群組名稱"</string>
+    <string name="grouped_list_save">"儲存"</string>
+    <string name="grouped_list_drag_cd">"拖曳以重新排序"</string>
+    <string name="grouped_list_drag_group_cd">"拖曳以重新排序群組 %1$s"</string>
 </resources>

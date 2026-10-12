@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +33,7 @@ import com.locationjoystick.core.designsystem.LjSpacing
 import com.locationjoystick.core.designsystem.R
 import com.locationjoystick.core.model.FavoriteLocation
 import com.locationjoystick.core.model.LatLng
+import com.locationjoystick.core.model.isHot
 import com.locationjoystick.core.model.matchesSearch
 import java.util.Locale
 
@@ -72,6 +72,8 @@ fun FavoritesList(
     var internalQuery by remember { mutableStateOf("") }
     val query = if (enableSearch) internalQuery else filterQuery
     val filtered = remember(favorites, query) { favorites.filter { it.matchesSearch(query) } }
+    val sections = remember(filtered) { groupForDisplay(filtered, { it.category }, { it.isHot() }) }
+    val collapsedGroups = rememberCollapsedGroups()
 
     Column(
         modifier =
@@ -127,7 +129,13 @@ fun FavoritesList(
                 contentPadding = PaddingValues(vertical = LjSpacing.xs),
                 verticalArrangement = Arrangement.spacedBy(LjSpacing.sm),
             ) {
-                items(items = filtered, key = { it.id }) { favorite ->
+                groupedItems(
+                    groups = sections,
+                    collapsed = collapsedGroups,
+                    forceExpanded = query.isNotBlank(),
+                    itemKey = { it.id },
+                    textColor = textColor,
+                ) { favorite ->
                     Row(
                         modifier =
                             Modifier

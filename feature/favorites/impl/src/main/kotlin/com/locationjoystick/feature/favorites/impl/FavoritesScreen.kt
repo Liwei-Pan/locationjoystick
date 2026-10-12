@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -56,6 +56,8 @@ import com.locationjoystick.core.designsystem.component.CooldownAdvisoryBadge
 import com.locationjoystick.core.designsystem.component.DeleteItemType
 import com.locationjoystick.core.designsystem.component.EmptyState
 import com.locationjoystick.core.designsystem.component.FavoriteTargetDetail
+import com.locationjoystick.core.designsystem.component.GroupDialogState
+import com.locationjoystick.core.designsystem.component.GroupDialogs
 import com.locationjoystick.core.designsystem.component.HomeToggleButton
 import com.locationjoystick.core.designsystem.component.ListSearchField
 import com.locationjoystick.core.designsystem.component.LjActionSheetRow
@@ -66,15 +68,21 @@ import com.locationjoystick.core.designsystem.component.LjOverflowMenuSectionLab
 import com.locationjoystick.core.designsystem.component.LjPrimaryButton
 import com.locationjoystick.core.designsystem.component.LjScaffold
 import com.locationjoystick.core.designsystem.component.LjTextButton
+import com.locationjoystick.core.designsystem.component.MoveToGroupMenuItem
 import com.locationjoystick.core.designsystem.component.SavedItemSortMenu
 import com.locationjoystick.core.designsystem.component.WideContentClamp
 import com.locationjoystick.core.designsystem.component.cooldownBadgeText
+import com.locationjoystick.core.designsystem.component.groupForDisplay
+import com.locationjoystick.core.designsystem.component.groupedItems
 import com.locationjoystick.core.designsystem.component.readPlainText
+import com.locationjoystick.core.designsystem.component.rememberCollapsedGroups
 import com.locationjoystick.core.designsystem.component.rememberCooldownStringLookup
+import com.locationjoystick.core.designsystem.component.rememberGroupReorder
 import com.locationjoystick.core.designsystem.component.rememberLjSheetState
 import com.locationjoystick.core.designsystem.component.writePlainText
 import com.locationjoystick.core.location.rememberSpoofToggleState
 import com.locationjoystick.core.model.LatLng
+import com.locationjoystick.core.model.isHot
 import com.locationjoystick.core.model.matchesSearch
 import com.locationjoystick.feature.favorites.impl.R
 import kotlinx.coroutines.launch
@@ -110,6 +118,9 @@ fun FavoritesRoute(
         locationLabel = spoofToggle.locationLabel,
         onSortModeSelected = viewModel::setSortMode,
         onToggleHome = viewModel::toggleHome,
+        onMoveToGroup = viewModel::moveToGroup,
+        onRenameGroup = viewModel::renameGroup,
+        onReorder = viewModel::setManualOrder,
         getCurrentPosition = { viewModel.currentPosition },
         bottomBar = bottomBar,
     )
@@ -151,6 +162,9 @@ internal fun FavoritesScreen(
     locationLabel: String? = null,
     onSortModeSelected: (com.locationjoystick.core.model.SavedItemSortMode) -> Unit = {},
     onToggleHome: (String) -> Unit = {},
+    onMoveToGroup: (String, String?) -> Unit = { _, _ -> },
+    onRenameGroup: (String, String?) -> Unit = { _, _ -> },
+    onReorder: (List<String>) -> Unit = {},
     getCurrentPosition: () -> com.locationjoystick.core.model.LatLng? = { null },
     bottomBar: @Composable () -> Unit = {},
 ) {
@@ -163,6 +177,8 @@ internal fun FavoritesScreen(
     var targetFavorite by remember { mutableStateOf<com.locationjoystick.core.model.FavoriteLocation?>(null) }
 
     var searchQuery by remember { mutableStateOf("") }
+    val collapsedGroups = rememberCollapsedGroups()
+    val groupDialogs = remember { GroupDialogState<com.locationjoystick.core.model.FavoriteLocation>() }
 
     LjScaffold(
         title = stringResource(R.string.favorites_screen_title),
@@ -237,42 +253,45 @@ internal fun FavoritesScreen(
                         }
 
                         else -> {
-                            val grouped = remember(filteredFavorites) { filteredFavorites.groupBy { it.category } }
-                            val orderedKeys =
-                                remember(grouped) { grouped.keys.sortedWith(compareBy({ it == null }, { it ?: "" })) }
+                            val listState = rememberLazyListState()
+                            val searching = searchQuery.isNotBlank()
+                            val allSections =
+                                remember(uiState.favorites) {
+                                    groupForDisplay(uiState.favorites, { it.category }, { it.isHot() })
+                                }
+                            val filteredSections =
+                                remember(filteredFavorites) {
+                                    groupForDisplay(filteredFavorites, { it.category }, { it.isHot() })
+                                }
+                            val reorder = rememberGroupReorder(listState, allSections, { it.id }, onReorder)
 
                             LazyColumn(
+                                state = listState,
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                orderedKeys.forEach { category ->
-                                    if (category != null) {
-                                        item(key = "header_$category") {
-                                            Text(
-                                                text = category,
-                                                style = MaterialTheme.typography.labelLarge,
-                                                color = MaterialTheme.colorScheme.primary,
-                                            )
-                                        }
-                                    }
-                                    items(
-                                        items = grouped.getValue(category),
-                                        key = { it.id },
-                                    ) { favorite ->
-                                        FavoriteCard(
-                                            modifier = Modifier.animateItem(),
-                                            favorite = favorite,
-                                            isHome = favorite.id == uiState.homeFavoriteId,
-                                            onToggleHome = { onToggleHome(it.id) },
-                                            cooldownState = cooldownStates[favorite.id] ?: CooldownState.Ready,
-                                            currentPosition = getCurrentPosition(),
-                                            // Spoofing off: no movement to interrupt, so keep the instant teleport.
-                                            onRowClick = { if (isSpoofing) targetFavorite = favorite else onTeleport(favorite) },
-                                            onEdit = { editingFavorite = it },
-                                            onDelete = { onSetPendingDeleteId(it.id) },
-                                        )
-                                    }
+                                groupedItems(
+                                    groups = if (searching) filteredSections else reorder.groups,
+                                    collapsed = collapsedGroups,
+                                    forceExpanded = searching,
+                                    reorder = if (searching) null else reorder,
+                                    itemKey = { it.id },
+                                    onRenameGroup = { groupDialogs.renaming = it },
+                                    onDeleteGroup = { groupDialogs.deleting = it },
+                                ) { favorite ->
+                                    FavoriteCard(
+                                        favorite = favorite,
+                                        isHome = favorite.id == uiState.homeFavoriteId,
+                                        onToggleHome = { onToggleHome(it.id) },
+                                        cooldownState = cooldownStates[favorite.id] ?: CooldownState.Ready,
+                                        currentPosition = getCurrentPosition(),
+                                        // Spoofing off: no movement to interrupt, so keep the instant teleport.
+                                        onRowClick = { if (isSpoofing) targetFavorite = favorite else onTeleport(favorite) },
+                                        onEdit = { editingFavorite = it },
+                                        onMoveToGroup = if (favorite.isHot()) null else ({ groupDialogs.moving = it }),
+                                        onDelete = { onSetPendingDeleteId(it.id) },
+                                    )
                                 }
                             }
                         }
@@ -409,6 +428,24 @@ internal fun FavoritesScreen(
         )
     }
 
+    GroupDialogs(
+        state = groupDialogs,
+        groupNames =
+            remember(
+                uiState.favorites,
+            ) {
+                uiState.favorites
+                    .filter { !it.isHot() }
+                    .mapNotNull { it.category }
+                    .distinct()
+                    .sorted()
+            },
+        currentGroupOf = { it.category },
+        onMove = { favorite, group -> onMoveToGroup(favorite.id, group) },
+        onRename = { from, to -> onRenameGroup(from, to) },
+        onDelete = { onRenameGroup(it, null) },
+    )
+
     uiState.pendingDeleteId?.let { favoriteId ->
         val favorite = uiState.favorites.find { it.id == favoriteId }
         if (favorite != null) {
@@ -436,6 +473,7 @@ private fun FavoriteCard(
     onEdit: (com.locationjoystick.core.model.FavoriteLocation) -> Unit,
     onDelete: (com.locationjoystick.core.model.FavoriteLocation) -> Unit,
     modifier: Modifier = Modifier,
+    onMoveToGroup: ((com.locationjoystick.core.model.FavoriteLocation) -> Unit)? = null,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -475,6 +513,12 @@ private fun FavoriteCard(
                         },
                         leadingIcon = { Icon(LjIcons.Edit, null) },
                     )
+                    if (onMoveToGroup != null) {
+                        MoveToGroupMenuItem {
+                            onMoveToGroup(favorite)
+                            menuExpanded = false
+                        }
+                    }
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.favorites_screen_copy_coordinates)) },
                         onClick = {

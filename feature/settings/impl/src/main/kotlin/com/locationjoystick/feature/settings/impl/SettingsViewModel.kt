@@ -747,6 +747,8 @@ class SettingsViewModel
                 homeFavoriteId = settingsRepository.getHomeFavoriteId().first(),
                 routesSortMode = settingsRepository.getRoutesSortMode().first(),
                 favoritesSortMode = settingsRepository.getFavoritesSortMode().first(),
+                favoritesManualOrder = settingsRepository.getFavoritesManualOrder().first(),
+                routesManualOrder = settingsRepository.getRoutesManualOrder().first(),
             )
         }
 
@@ -963,6 +965,9 @@ class SettingsViewModel
             settingsRepository.setFavoritesSortNewestFirst(data.favoritesSortNewestFirst)
             settingsRepository.setRoutesSortMode(data.routesSortMode)
             settingsRepository.setFavoritesSortMode(data.favoritesSortMode)
+            // After the sort modes: choosing a mode clears the manual order.
+            settingsRepository.setFavoritesManualOrder(data.favoritesManualOrder)
+            settingsRepository.setRoutesManualOrder(data.routesManualOrder)
             if (replace || data.homeFavoriteId != null) settingsRepository.setHomeFavoriteId(data.homeFavoriteId)
             clearHomeIfMissing()
         }

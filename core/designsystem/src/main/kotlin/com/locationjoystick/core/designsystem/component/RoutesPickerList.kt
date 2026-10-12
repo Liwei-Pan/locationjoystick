@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +26,7 @@ import com.locationjoystick.core.designsystem.LjIcons
 import com.locationjoystick.core.designsystem.LjSpacing
 import com.locationjoystick.core.designsystem.R
 import com.locationjoystick.core.model.Route
+import com.locationjoystick.core.model.isHot
 import com.locationjoystick.core.model.matchesSearch
 
 /**
@@ -54,6 +54,8 @@ fun RoutesPickerList(
     var internalQuery by remember { mutableStateOf("") }
     val query = if (enableSearch) internalQuery else filterQuery
     val filtered = remember(routes, query) { routes.filter { it.matchesSearch(query) } }
+    val sections = remember(filtered) { groupForDisplay(filtered, { it.category }, { it.isHot() }) }
+    val collapsedGroups = rememberCollapsedGroups()
 
     Column(modifier = modifier.fillMaxWidth().padding(contentPadding)) {
         if (title != null) {
@@ -88,7 +90,13 @@ fun RoutesPickerList(
                 contentPadding = PaddingValues(vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(filtered, key = { it.id }) { route ->
+                groupedItems(
+                    groups = sections,
+                    collapsed = collapsedGroups,
+                    forceExpanded = query.isNotBlank(),
+                    itemKey = { it.id },
+                    textColor = textColor,
+                ) { route ->
                     Row(
                         modifier =
                             Modifier

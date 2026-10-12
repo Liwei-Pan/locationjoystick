@@ -62,6 +62,35 @@ class FavoriteRepository
                 }
             }
 
+        /** Moves [id] into user group [category] (null = ungrouped). Hot favorites keep their country. */
+        suspend fun setCategory(
+            id: String,
+            category: String?,
+        ): Result<Unit> =
+            withContext(ioDispatcher) {
+                runCatching {
+                    val entity = favoriteDao.getById(id)
+                    if (entity != null && !entity.id.startsWith(HOT_ID_PREFIX)) {
+                        favoriteDao.update(entity.copy(category = category))
+                    }
+                }.onFailure { e -> Log.e(TAG, "Failed to set favorite category: $id", e) }
+            }
+
+        /** Renames user group [from] to [to], or ungroups its members when [to] is null. */
+        suspend fun renameCategory(
+            from: String,
+            to: String?,
+        ): Result<Unit> =
+            withContext(ioDispatcher) {
+                runCatching {
+                    favoriteDao
+                        .getAll()
+                        .first()
+                        .filter { it.category == from && !it.id.startsWith(HOT_ID_PREFIX) }
+                        .forEach { favoriteDao.update(it.copy(category = to)) }
+                }.onFailure { e -> Log.e(TAG, "Failed to rename favorite group: $from", e) }
+            }
+
         suspend fun deleteFavorite(id: String): Result<Unit> =
             withContext(ioDispatcher) {
                 runCatching {
