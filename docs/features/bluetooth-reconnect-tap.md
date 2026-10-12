@@ -81,12 +81,21 @@ Recorded on the one attached device during this investigation:
 - Pixel, Android API 36 (`ro.build.version.sdk` = 36), serial 32221FDH2001SU.
 - Enabled accessibility services already include a third-party automation app's service. This means the enumeration row above is already non-empty on a real device, so adding the app's service does not make the device stand out in a new way.
 
+## Measured on screenshots
+
+Source: two 864x1920 screenshots of the target app on a night map, one per state. They are the fixtures of `ReconnectControlDetectorTest` (`feature/widget/impl/src/test/resources/reconnect/`). Detector: `ReconnectControlDetector` (pure over ARGB pixels).
+
+- **Position.** Ball center at about 91.5% of width and 12.5% of height. Diameter about 7.2% of width. It is inside the compass search window (right 45%, top 35%).
+- **ON.** Saturated red upper half, white lower half, pure green center dot (about 0, 252, 7). Signal arcs beside the ball.
+- **OFF.** Dimmed ball: flat rose upper half (about 150, 97, 122), flat light-blue ring and lower half (about 86, 156, 212), dark-blue center. No green dot.
+- **Detector rule.** ON = icon-sized green blob with red above it. OFF = icon-sized light-blue blob with rose pixels inside it. Anything else returns null, and null never taps.
+- **Not yet covered.** Day theme, other brightness levels, other screen sizes, a "connecting" look, and screens without the control (only one non-HUD fixture so far).
+
 ## Pending measurements
 
 These need the target app's HUD in both states, a companion device, and more than one device or theme. They were not available in the investigation run and are marked pending rather than estimated.
 
-- Control bounding box as fractions of width and height, per device.
-- HSV ranges for "off" and "on", per device, per theme, brightness and night mode.
+- Control bounding box and OFF/ON colors on more devices, in the day theme, and at other brightness levels.
 - Probe of `MotionEvent` flags, source, device id, tool type, pressure and size for a real finger tap, `adb shell input tap`, and `dispatchGesture` taps, on API 34 and later.
 
 ## Open risks
@@ -96,5 +105,5 @@ These need the target app's HUD in both states, a companion device, and more tha
 
 ## Open work
 
-- `implement-reconnect-by-tap-with-the-chosen-method`: code, manifest flag, disclosure copy, tests, and the AGENTS.md, README and wiki rows.
+- `implement-reconnect-by-tap-with-the-chosen-method`: detector exists (night map only); still open: the gesture, tap policy, manifest flag, disclosure copy, tests, and the AGENTS.md, README and wiki rows.
 - `prove-bluetooth-reconnect-tap-100-reliable-on-real-devices`: repeated disconnect and reconnect matrix on real devices.
