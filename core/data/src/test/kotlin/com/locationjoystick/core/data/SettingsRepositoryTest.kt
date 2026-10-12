@@ -16,6 +16,7 @@ import com.locationjoystick.core.model.SpeedUnit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
@@ -1152,6 +1153,21 @@ class SettingsRepositoryTest {
             }
         }
 
+    // reconnect tap flags
+
+    @Test
+    fun `reconnect tap flags default false and round trip`() =
+        runTest {
+            assertFalse(repository.getReconnectTapEnabled().first())
+            assertFalse(repository.getReconnectTapDisclosureAccepted().first())
+
+            repository.setReconnectTapEnabled(true)
+            repository.setReconnectTapDisclosureAccepted(true)
+
+            assertTrue(repository.getReconnectTapEnabled().first())
+            assertTrue(repository.getReconnectTapDisclosureAccepted().first())
+        }
+
     // resetAllData
 
     @Test
@@ -1635,6 +1651,22 @@ class FakeAppPreferencesDataSource : PreferencesDataSource {
 
     override suspend fun setCompassDisclosureChoice(choice: String) {
         compassDisclosureChoiceFlow.value = choice
+    }
+
+    val reconnectTapEnabledFlow = MutableStateFlow(false)
+
+    override fun getReconnectTapEnabled(): Flow<Boolean> = reconnectTapEnabledFlow
+
+    override suspend fun setReconnectTapEnabled(enabled: Boolean) {
+        reconnectTapEnabledFlow.value = enabled
+    }
+
+    val reconnectTapDisclosureAcceptedFlow = MutableStateFlow(false)
+
+    override fun getReconnectTapDisclosureAccepted(): Flow<Boolean> = reconnectTapDisclosureAcceptedFlow
+
+    override suspend fun setReconnectTapDisclosureAccepted(accepted: Boolean) {
+        reconnectTapDisclosureAcceptedFlow.value = accepted
     }
 
     val recentSearchesFlow = MutableStateFlow<List<RecentSearch>>(emptyList())

@@ -29,6 +29,7 @@ See the **[wiki](https://locationjoystick.shrtcts.fr/)** for every feature: the 
 - Search and sort saved favorites and routes; rename, delete, and share them from the widget too.
 - Use a compact movable widget map with north lock, or expand it for more space.
 - Preview planting circles and spiral roaming, with optional jumps between route stops.
+- Optionally reconnect your Bluetooth accessory automatically when it drops.
 - See an "update available" badge (checked about once a day) and a "What's new" badge for your current version on the Home screen.
 
 ## Community

@@ -1,0 +1,93 @@
+package com.locationjoystick.feature.widget.impl
+
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.currentTime
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import kotlin.random.Random
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class ReconnectTapRunnerTest {
+    private val off = ReconnectControl(ReconnectState.OFF, 900, 200)
+    private val on = ReconnectControl(ReconnectState.ON, 900, 200)
+
+    private class Taps {
+        var count = 0
+        val times = mutableListOf<Long>()
+    }
+
+    private fun reads(vararg items: ReconnectControl?): suspend () -> ReconnectControl? {
+        val queue = ArrayDeque(items.toList())
+        // Past the script the last item repeats.
+        return { if (queue.size > 1) queue.removeFirst() else queue.first() }
+    }
+
+    @Test
+    fun `off twice then on after one tap reconnects with one tap`() =
+        runTest {
+            val taps = Taps()
+            val result =
+                runReconnectTap(1080, reads(off, off, on), { _, _, _ ->
+                    taps.count++
+                    true
+                })
+            assertEquals(ReconnectRunResult.RECONNECTED, result)
+            assertEquals(1, taps.count)
+        }
+
+    @Test
+    fun `on null or flapping first reads never tap`() =
+        runTest {
+            for (script in listOf(listOf(on), listOf(null), listOf(off, on), listOf(off, null))) {
+                val taps = Taps()
+                val result =
+                    runReconnectTap(1080, reads(*script.toTypedArray()), { _, _, _ ->
+                        taps.count++
+                        true
+                    })
+                assertEquals(ReconnectRunResult.NOT_OFF, result)
+                assertEquals(0, taps.count)
+            }
+        }
+
+    @Test
+    fun `off forever fails after exactly three taps`() =
+        runTest {
+            val taps = Taps()
+            val result =
+                runReconnectTap(1080, reads(off), { _, _, _ ->
+                    taps.count++
+                    taps.times += currentTime
+                    true
+                })
+            assertEquals(ReconnectRunResult.FAILED, result)
+            assertEquals(3, taps.count)
+            // Gap between taps: settle 4s + retry gap 5s + pre-tap delay 0.7..2.2s.
+            val gap = taps.times[1] - taps.times[0]
+            assertTrue("gap $gap", gap in 9_700..11_200)
+        }
+
+    @Test
+    fun `null after a tap fails without another tap`() =
+        runTest {
+            val taps = Taps()
+            val result =
+                runReconnectTap(1080, reads(off, off, null), { _, _, _ ->
+                    taps.count++
+                    true
+                })
+            assertEquals(ReconnectRunResult.FAILED, result)
+            assertEquals(1, taps.count)
+        }
+
+    @Test
+    fun `tap point stays in clamp box and varies`() {
+        val random = Random(7)
+        val points = (1..500).map { jitteredTapPoint(off, 1000, random) }
+        // clamp is 2.5% of 1000 = 25 px.
+        assertTrue(points.all { (x, y) -> x in 875..925 && y in 175..225 })
+        assertTrue(points.toSet().size > 20)
+    }
+}

@@ -154,6 +154,11 @@ internal fun SettingsMenusSubScreen(
                         Spacer(Modifier.height(24.dp))
                         TapToWalkSection(uiState, onAction, onTestCompassDetection, launchableApps)
                         Spacer(Modifier.height(24.dp))
+                        // Same API 30 floor as the screenshot the check depends on.
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            ReconnectTapSection(uiState, onAction)
+                            Spacer(Modifier.height(24.dp))
+                        }
                         PrivacySection(uiState, onAction)
                         Spacer(Modifier.height(24.dp))
                         CaptureSection(uiState, onAction, launchableApps, Modifier.bringIntoViewRequester(captureBringIntoView))
@@ -389,6 +394,55 @@ private fun TapToWalkSection(
                 }
             },
             onDecline = { showEnableDisclosure = false },
+        )
+    }
+}
+
+@Composable
+private fun ReconnectTapSection(
+    uiState: SettingsUiState,
+    onAction: (SettingsAction) -> Unit,
+) {
+    val context = LocalContext.current
+    var showDisclosure by rememberSaveable { mutableStateOf(false) }
+
+    Text(stringResource(R.string.settings_menus_reconnect_accessory), style = MaterialTheme.typography.headlineSmall)
+    Spacer(Modifier.height(4.dp))
+    Text(
+        stringResource(R.string.settings_menus_reconnect_accessory_description),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(8.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            stringResource(R.string.settings_menus_reconnect_accessory_automatically),
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(
+            checked = uiState.reconnectTapEnabled,
+            onCheckedChange = { on ->
+                if (on && !uiState.reconnectTapDisclosureAccepted) {
+                    showDisclosure = true
+                } else {
+                    onAction(SettingsAction.SetReconnectTapEnabled(on))
+                }
+            },
+        )
+    }
+    if (showDisclosure) {
+        CompassDisclosureDialog(
+            title = stringResource(R.string.settings_menus_reconnect_accessory),
+            onAccept = {
+                showDisclosure = false
+                onAction(SettingsAction.AcceptReconnectTapDisclosure)
+                if (!uiState.isCompassServiceGranted) openAccessibilitySettings(context)
+            },
+            onDecline = { showDisclosure = false },
         )
     }
 }

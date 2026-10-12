@@ -754,6 +754,14 @@ internal class SaveTestPreferencesDataSource : PreferencesDataSource {
 
     override suspend fun setCompassDisclosureChoice(choice: String) = Unit
 
+    override fun getReconnectTapEnabled(): Flow<Boolean> = flowOf(false)
+
+    override suspend fun setReconnectTapEnabled(enabled: Boolean) = Unit
+
+    override fun getReconnectTapDisclosureAccepted(): Flow<Boolean> = flowOf(false)
+
+    override suspend fun setReconnectTapDisclosureAccepted(accepted: Boolean) = Unit
+
     var clearAllExceptOnboardingCallCount = 0
 
     override suspend fun clearAllExceptOnboarding() {

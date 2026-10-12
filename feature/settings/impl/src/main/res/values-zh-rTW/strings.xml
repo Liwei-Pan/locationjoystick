@@ -79,6 +79,9 @@
     <string name="settings_menus_appearance">"外觀"</string>
     <string name="settings_menus_switch_to_a_light_theme_for">"切換至淺色主題，便於在強光或陽光直射下看清螢幕。"</string>
     <string name="settings_menus_light_mode">"淺色模式"</string>
+    <string name="settings_menus_reconnect_accessory">"重新連接配件"</string>
+    <string name="settings_menus_reconnect_accessory_description">"每 5 分鐘檢查一次你的配件是否顯示為已中斷連線，並點擊其連接按鈕。"</string>
+    <string name="settings_menus_reconnect_accessory_automatically">"自動重新連接配件"</string>
     <string name="settings_menus_tap_to_walk">"點擊行走"</string>
     <string name="settings_menus_walk_to_a_location_by_tapping">"點擊某個位置即可走向該處 — 無需確認。"</string>
     <string name="settings_menus_menus">"選單"</string>

@@ -1,6 +1,6 @@
 # Bluetooth Reconnect Tap
 
-**Status:** Design decision, not implemented. No production code, manifest or disclosure changes exist yet.
+**Status:** Implemented (off by default). Reliability proof is still open (see "Open work").
 
 ## Goal
 
@@ -37,11 +37,12 @@ Why:
 - The app is offline-first with no extra installs (see `AGENTS.md`, Project table).
 - It is the only path that reaches the target app without injection, shell access or node reads.
 
-Required changes for the implement task (not made here):
+Implemented changes:
 
 - `android:canPerformGestures="true"` in `compass_accessibility_service.xml`.
-- Disclosure copy updated to name the tap action, shipped before the capability is reachable.
-- The tap is user-started per reconnect run, never a background loop, and gated on `SettingsRepository.getCompassDisclosureAccepted()` like `CompassHeadingSource.captureHeading()`.
+- Disclosure copy (`compass_disclosure_*`, `accessibility_service_description`) names the periodic screenshot and the tap, and a separate `reconnect_tap_disclosure_accepted` flag forces re-acceptance.
+- No manual trigger. While `reconnect_tap_enabled` (Settings > Menus > Reconnect accessory, default off) and both disclosure flags (`getReconnectTapDisclosureAccepted()`, `getCompassDisclosureAccepted()`) are true, `CompassAccessibilityService` runs a check every `ReconnectTapConstants.CHECK_INTERVAL_MS` (5 min, first check one interval after the loop starts). Turning any flag off cancels the loop at once.
+- The run logic is `runReconnectTap` in `ReconnectTapRunner.kt` (fake-driven unit tests); the detector is `ReconnectControlDetector`. The settings and consent flags are device-local and excluded from export.
 
 ## What the target app can observe on the chosen path
 
@@ -66,10 +67,10 @@ Required changes for the implement task (not made here):
 
 ## Human-like timing and jitter
 
-Starting points, drawn fresh for every tap from `kotlin.random.Random`:
+Values live in `AppConstants.ReconnectTapConstants`, drawn fresh for every tap from `kotlin.random.Random`:
 
 - Pre-tap delay after a confirmed "off": uniform 700 to 2200 ms.
-- Tap position: Gaussian around the blob center, sigma = 15% of the blob's width and height, clamped inside the blob bounds.
+- Tap position: Gaussian around the blob center, sigma 1.1% of screen width (about 15% of the ball), each axis clamped to 2.5% of screen width so the tap stays inside the ball.
 - Gesture duration: uniform 45 to 130 ms.
 
 The implement task may tune these only against evidence from the reliability proof.
@@ -100,10 +101,9 @@ These need the target app's HUD in both states, a companion device, and more tha
 
 ## Open risks
 
-- **Play review.** Gesture use under a service that declares `isAccessibilityTool="false"` is a review risk. Mitigation: user-started runs only, disclosure updated before release, no background loop.
+- **Play review.** Gesture use under a service that declares `isAccessibilityTool="false"` is a review risk. Mitigation: off by default, separate explicit acceptance, disclosure names the periodic screenshot and tap, never taps on unknown.
 - **Target-app changes.** A HUD move or color change breaks classification. The "unknown" value prevents false taps, but reconnect then fails until the ranges are re-measured.
 
 ## Open work
 
-- `implement-reconnect-by-tap-with-the-chosen-method`: detector exists (night map only); still open: the gesture, tap policy, manifest flag, disclosure copy, tests, and the AGENTS.md, README and wiki rows.
 - `prove-bluetooth-reconnect-tap-100-reliable-on-real-devices`: repeated disconnect and reconnect matrix on real devices.

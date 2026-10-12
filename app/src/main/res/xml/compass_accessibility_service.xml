@@ -3,6 +3,7 @@
     android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagReportViewIds"
+    android:canPerformGestures="true"
     android:canTakeScreenshot="true"
     android:notificationTimeout="100"
     android:isAccessibilityTool="false"

@@ -1,16 +1,28 @@
 package com.locationjoystick.feature.widget.impl
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Path
 import android.os.Build
 import android.util.Log
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import com.locationjoystick.core.common.constants.AppConstants
+import com.locationjoystick.core.data.SettingsRepository
 import com.locationjoystick.core.location.CompassAccessibilityServiceBridge
 import com.locationjoystick.core.location.CompassHeadingSource
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import javax.inject.Inject
 import kotlin.coroutines.resume
@@ -230,6 +242,10 @@ class CompassAccessibilityService :
 
     @Inject lateinit var compassHeadingSource: CompassHeadingSource
 
+    @Inject lateinit var settingsRepository: SettingsRepository
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         if (!isSupported()) {
@@ -238,10 +254,84 @@ class CompassAccessibilityService :
         }
         compassHeadingSource.bind(this)
         Log.d(TAG, "Service connected — bound to CompassHeadingSource")
+        startReconnectLoop()
     }
+
+    /**
+     * Periodic reconnect check (docs/features/bluetooth-reconnect-tap.md). Runs only while the
+     * setting and both disclosures are on; `collectLatest` cancels a run in flight the moment any
+     * of them turns off.
+     */
+    private fun startReconnectLoop() {
+        serviceScope.launch {
+            combine(
+                settingsRepository.getReconnectTapEnabled(),
+                settingsRepository.getReconnectTapDisclosureAccepted(),
+                settingsRepository.getCompassDisclosureAccepted(),
+            ) { enabled, reconnectOk, compassOk -> enabled && reconnectOk && compassOk }
+                .distinctUntilChanged()
+                .collectLatest { active ->
+                    while (active) {
+                        delay(AppConstants.ReconnectTapConstants.CHECK_INTERVAL_MS)
+                        runReconnectCheck()
+                    }
+                }
+        }
+    }
+
+    private suspend fun runReconnectCheck() {
+        val result =
+            runReconnectTap(
+                screenWidth = resources.displayMetrics.widthPixels,
+                capture = {
+                    val bitmap = takeScreenshotBitmap()
+                    bitmap?.let {
+                        val soft = if (it.config == Bitmap.Config.HARDWARE) it.copy(Bitmap.Config.ARGB_8888, false) else it
+                        val pixels = IntArray(soft.width * soft.height)
+                        soft.getPixels(pixels, 0, soft.width, 0, 0, soft.width, soft.height)
+                        val control = ReconnectControlDetector.detect(pixels, soft.width, soft.height)
+                        if (soft !== it) soft.recycle()
+                        it.recycle()
+                        control
+                    }
+                },
+                tap = { x, y, durationMs -> dispatchTap(x, y, durationMs) },
+            )
+        Log.d(TAG, "Reconnect check: $result")
+    }
+
+    private suspend fun dispatchTap(
+        x: Int,
+        y: Int,
+        durationMs: Long,
+    ): Boolean =
+        suspendCancellableCoroutine { cont ->
+            val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
+            val gesture =
+                GestureDescription
+                    .Builder()
+                    .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
+                    .build()
+            val dispatched =
+                dispatchGesture(
+                    gesture,
+                    object : GestureResultCallback() {
+                        override fun onCompleted(gestureDescription: GestureDescription?) {
+                            cont.resume(true)
+                        }
+
+                        override fun onCancelled(gestureDescription: GestureDescription?) {
+                            cont.resume(false)
+                        }
+                    },
+                    null,
+                )
+            if (!dispatched) cont.resume(false)
+        }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         compassHeadingSource.unbind()
+        serviceScope.cancel()
         Log.d(TAG, "Service unbound")
         return false
     }

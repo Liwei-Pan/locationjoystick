@@ -117,6 +117,7 @@ Rules:
 | Onboarding | docs/features/onboarding.md |
 | Group Sync | docs/features/group-sync.md |
 | Tap to Walk | docs/features/tap-to-walk.md |
+| Reconnect Accessory (Bluetooth reconnect tap) | docs/features/bluetooth-reconnect-tap.md |
 | Theme | docs/features/theme.md |
 | Hide Teleport Features | docs/features/hide-teleport.md |
 | What's New Popup | docs/features/whats-new.md |

@@ -209,6 +209,12 @@ internal sealed class SettingsAction {
         val accepted: Boolean,
     ) : SettingsAction()
 
+    data class SetReconnectTapEnabled(
+        val enabled: Boolean,
+    ) : SettingsAction()
+
+    data object AcceptReconnectTapDisclosure : SettingsAction()
+
     data class SetThemeMode(
         val mode: ThemeMode,
     ) : SettingsAction()

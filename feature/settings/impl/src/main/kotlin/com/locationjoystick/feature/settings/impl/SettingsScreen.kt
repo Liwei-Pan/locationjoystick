@@ -446,6 +446,14 @@ fun SettingsRoute(
                     viewModel.setCompassDisclosureAccepted(action.accepted)
                 }
 
+                is SettingsAction.SetReconnectTapEnabled -> {
+                    viewModel.setReconnectTapEnabled(action.enabled)
+                }
+
+                SettingsAction.AcceptReconnectTapDisclosure -> {
+                    viewModel.acceptReconnectTapDisclosure()
+                }
+
                 is SettingsAction.SetThemeMode -> {
                     viewModel.setThemeMode(action.mode)
                 }

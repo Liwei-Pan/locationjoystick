@@ -229,3 +229,7 @@ screen re-shows if the user disables and re-enables.
 - Do not persist `isTapToWalkActive` in DataStore — it is transient session state in `MutableStateFlow`.
 - Do not block the tap callback waiting for heading — pre-capture in `show()` with a timeout instead.
 - Do not call `getPixel` on a hardware bitmap — copy to `ARGB_8888` first via `bitmap.copy(Bitmap.Config.ARGB_8888, false)`.
+
+## Shared disclosure
+
+The accessibility disclosure also covers the Reconnect accessory feature (docs/features/bluetooth-reconnect-tap.md): its text names the periodic screenshot and the tap, and the service gained gesture capability (`canPerformGestures`). Accepting from the Tap to Walk switch does not enable the reconnect tap; that needs its own acceptance.

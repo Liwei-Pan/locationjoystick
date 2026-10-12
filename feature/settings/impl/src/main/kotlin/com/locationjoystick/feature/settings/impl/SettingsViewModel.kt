@@ -231,13 +231,17 @@ class SettingsViewModel
                 combine(
                     settingsRepository.getCompassTestTargetPackage(),
                     settingsRepository.getCompassDisclosureChoice(),
-                ) { pkg, choice -> pkg to choice },
+                    combine(
+                        settingsRepository.getReconnectTapEnabled(),
+                        settingsRepository.getReconnectTapDisclosureAccepted(),
+                    ) { enabled, accepted -> enabled to accepted },
+                ) { pkg, choice, reconnect -> Triple(pkg, choice, reconnect) },
                 combine(compassServiceGranted, captureSnapshot) { granted, capture -> granted to capture },
                 settingsRepository.getThemeMode(),
                 settingsRepository.getBaseAltitudeOverride(),
             ) {
                 (snapshot, draftState),
-                (compassTestTargetPackage, compassDisclosureChoice),
+                (compassTestTargetPackage, compassDisclosureChoice, reconnectTap),
                 (isServiceGranted, capture),
                 themeMode,
                 baseAltitudeOverride,
@@ -296,6 +300,8 @@ class SettingsViewModel
                     isCompassServiceGranted = isServiceGranted,
                     compassDisclosureAccepted =
                         compassDisclosureChoice == AppConstants.CompassTrackingConstants.DISCLOSURE_ACCEPTED,
+                    reconnectTapEnabled = reconnectTap.first,
+                    reconnectTapDisclosureAccepted = reconnectTap.second,
                     themeMode = themeMode,
                     isDirty = isDirty,
                 )
@@ -532,6 +538,19 @@ class SettingsViewModel
 
         fun setCompassDisclosureAccepted(accepted: Boolean) {
             viewModelScope.launch { settingsRepository.recordCompassDisclosure(accepted) }
+        }
+
+        fun setReconnectTapEnabled(enabled: Boolean) {
+            viewModelScope.launch { settingsRepository.setReconnectTapEnabled(enabled) }
+        }
+
+        /** Accepting the notice is what grants the tap; it also covers the screenshot capability. */
+        fun acceptReconnectTapDisclosure() {
+            viewModelScope.launch {
+                settingsRepository.setReconnectTapDisclosureAccepted(true)
+                settingsRepository.recordCompassDisclosure(true)
+                settingsRepository.setReconnectTapEnabled(true)
+            }
         }
 
         fun setCompassTestTargetPackage(packageName: String) {

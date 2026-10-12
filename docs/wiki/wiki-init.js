@@ -13,6 +13,7 @@
       { href: 'collect-links-into-a-route.html', label: 'Collect links into a route' },
       { href: 'map.html', label: 'Map' },
       { href: 'overlays.html', label: 'Overlays' },
+      { href: 'reconnect-accessory.html', label: 'Reconnect accessory' },
       { href: 'routes.html', label: 'Routes' },
       { href: 'favorites.html', label: 'Favorites' },
       { href: 'location-links.html', label: 'Location Links' },

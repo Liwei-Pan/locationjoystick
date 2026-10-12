@@ -380,6 +380,14 @@ interface PreferencesDataSource {
 
     suspend fun setCompassDisclosureChoice(choice: String)
 
+    fun getReconnectTapEnabled(): Flow<Boolean>
+
+    suspend fun setReconnectTapEnabled(enabled: Boolean)
+
+    fun getReconnectTapDisclosureAccepted(): Flow<Boolean>
+
+    suspend fun setReconnectTapDisclosureAccepted(accepted: Boolean)
+
     /** Returns all settings needed by the settings UI in a single DataStore scan. */
     fun getSettingsSnapshot(): Flow<SettingsSnapshot>
 
@@ -615,6 +623,8 @@ class AppPreferencesDataSource
             val TAP_TO_WALK_SCALE_MPX = doublePreferencesKey("tap_to_walk_scale_mpx")
             val COMPASS_TEST_TARGET_PACKAGE = stringPreferencesKey("compass_test_target_package")
             val COMPASS_DISCLOSURE_CHOICE = stringPreferencesKey("compass_disclosure_choice")
+            val RECONNECT_TAP_ENABLED = booleanPreferencesKey("reconnect_tap_enabled")
+            val RECONNECT_TAP_DISCLOSURE_ACCEPTED = booleanPreferencesKey("reconnect_tap_disclosure_accepted")
             val REALISM_REAL_ELEVATION_ENABLED = booleanPreferencesKey("realism_real_elevation_enabled")
             val BASE_ALTITUDE_OVERRIDE_METERS = doublePreferencesKey("base_altitude_override_meters")
             val ALTITUDE_JITTER_RADIUS_METERS = doublePreferencesKey("altitude_jitter_radius_meters")
@@ -1144,6 +1154,15 @@ class AppPreferencesDataSource
             pref(Keys.COMPASS_DISCLOSURE_CHOICE, AppConstants.CompassTrackingConstants.DISCLOSURE_UNANSWERED)
 
         override suspend fun setCompassDisclosureChoice(choice: String) = setPref(Keys.COMPASS_DISCLOSURE_CHOICE, choice)
+
+        override fun getReconnectTapEnabled(): Flow<Boolean> = pref(Keys.RECONNECT_TAP_ENABLED, false)
+
+        override suspend fun setReconnectTapEnabled(enabled: Boolean) = setPref(Keys.RECONNECT_TAP_ENABLED, enabled)
+
+        override fun getReconnectTapDisclosureAccepted(): Flow<Boolean> = pref(Keys.RECONNECT_TAP_DISCLOSURE_ACCEPTED, false)
+
+        override suspend fun setReconnectTapDisclosureAccepted(accepted: Boolean) =
+            setPref(Keys.RECONNECT_TAP_DISCLOSURE_ACCEPTED, accepted)
 
         override suspend fun applySnapshot(snapshot: SettingsSnapshot) {
             dataStore.edit { prefs ->

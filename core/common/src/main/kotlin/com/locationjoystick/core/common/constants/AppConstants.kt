@@ -619,6 +619,28 @@ object AppConstants {
         const val DISCLOSURE_SKIPPED = "skipped"
     }
 
+    object ReconnectTapConstants {
+        // User decision: a fixed ~5 minute periodic check, no manual trigger. First check runs one
+        // interval after the loop (re)starts so enabling the setting never taps immediately.
+        const val CHECK_INTERVAL_MS = 5 * 60_000L
+
+        // Policy: two OFF reads this far apart, then up to MAX_TAPS taps, each after a human-like
+        // pause and followed by a settle wait before the control is read again.
+        const val CONFIRM_DELAY_MS = 400L
+        const val PRE_TAP_DELAY_MIN_MS = 700L
+        const val PRE_TAP_DELAY_MAX_MS = 2200L
+        const val SETTLE_DELAY_MS = 4000L
+        const val RETRY_GAP_MS = 5000L
+        const val MAX_TAPS = 3
+
+        // Gesture stroke length and tap offset spread, as fractions of the screen width (the ball
+        // is ~7.2% wide, so sigma 1.1% / clamp 2.5% keeps the tap inside it).
+        const val GESTURE_MIN_MS = 45L
+        const val GESTURE_MAX_MS = 130L
+        const val TAP_SIGMA_WIDTH_FRACTION = 0.011f
+        const val TAP_CLAMP_WIDTH_FRACTION = 0.025f
+    }
+
     object FollowerRestorationConstants {
         /** Initial retry delay in milliseconds */
         const val INITIAL_RETRY_DELAY_MS = 500L

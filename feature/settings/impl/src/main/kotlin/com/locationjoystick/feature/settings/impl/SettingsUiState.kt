@@ -41,6 +41,8 @@ data class SettingsUiState(
     val compassTestTargetPackage: String = "",
     val isCompassServiceGranted: Boolean = false,
     val compassDisclosureAccepted: Boolean = false,
+    val reconnectTapEnabled: Boolean = false,
+    val reconnectTapDisclosureAccepted: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.DARK,
     val hideTeleportFeatures: Boolean = false,
     val hideWidgetOverlay: Boolean = false,
