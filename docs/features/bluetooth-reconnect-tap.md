@@ -1,0 +1,100 @@
+# Bluetooth Reconnect Tap
+
+**Status:** Design decision, not implemented. No production code, manifest or disclosure changes exist yet.
+
+## Goal
+
+Reconnect a Bluetooth companion device by automating the on-screen tap in the other app, with the lowest practical chance of detection. The tap is the only automated action; the Bluetooth connection itself is never driven through the Bluetooth API.
+
+Closes only when proven 100% reliable over repeated disconnect and reconnect cycles on real devices (see the follow-up task in "Open work" below).
+
+## Hard rule
+
+Nothing is injected into, hooked into, patched in, or read from the target app's process or memory. Any approach that needs that is out of scope and is recorded as not possible below.
+
+The only data used from the target app is the pixels on screen, captured the same way the compass feature already captures them (`takeScreenshot`, see [Compass Orientation](tap-to-walk.md)).
+
+## Comparison of tap delivery paths
+
+Columns: what the target app can observe, what the path needs, Play policy fit, verdict.
+
+| Path | What the target app can observe | Required permissions or setup | Play policy fit | Verdict |
+|---|---|---|---|---|
+| **A. Accessibility gesture dispatch** (`AccessibilityService.dispatchGesture`) | Enabled-service list (already non-empty on real devices, see "Observed on test device"). Touch events carry `MotionEvent.FLAG_IS_ACCESSIBILITY_EVENT` on API 34 and later. Event device id, source and tool type are those of the injected gesture stream. Timing is whatever we choose. | Accessibility service already enabled for the compass feature. Needs `android:canPerformGestures="true"` in the service XML. | Accessibility disclosure already shipped for screenshots. Gesture use needs the disclosure updated to name the tap, shipped before the capability is reachable. Main residual review risk. | **Chosen** |
+| **B. Shell or privileged input** (`input tap` via wireless ADB, Shizuku, root) | Developer options and ADB state are visible. A second helper app (Shizuku) is installable and enumerable. Events come from the shell or a privileged process. | Developer mode or a second app, plus a setup flow the app does not have. | Adds a setup burden and a dependency outside the app; not offline-first friendly. | Rejected |
+| **C. Node click** (`AccessibilityNodeInfo.performAction(ACTION_CLICK)`) | Needs the target app's view tree, which the hard rule forbids reading. | Needs `canRetrieveWindowContent`, which the service does not set. Game surfaces expose few or no nodes anyway. | Reads another app's content; weakest policy fit. | Rejected |
+| **D. Other platform paths** (hidden `InputManager.injectInputEvent`, `UiAutomation`, overlay pass-through) | Injection needs the signature-level `INJECT_EVENTS` permission, which a Play app cannot hold. `UiAutomation` runs only from a shell instrumentation process and conflicts with an enabled accessibility service. A `SYSTEM_ALERT_WINDOW` overlay cannot synthesize touches for another window; `FLAG_NOT_TOUCHABLE` only forwards real user touches. | Not obtainable for a normal app. | Not applicable. | Not possible |
+
+Bluetooth API reconnect is out of scope by the task definition.
+
+## Chosen path
+
+**Accessibility gesture dispatch** via the existing `CompassAccessibilityService`.
+
+Why:
+
+- The service is already enabled, disclosed and screenshot-capable (`feature/widget/impl/.../CompassAccessibilityService.kt`, `app/src/main/res/xml/compass_accessibility_service.xml`). The tap adds no new permission prompt, no new process, no new dependency, and no new entry in the enabled-services list a target app could enumerate.
+- The app is offline-first with no extra installs (see `AGENTS.md`, Project table).
+- It is the only path that reaches the target app without injection, shell access or node reads.
+
+Required changes for the implement task (not made here):
+
+- `android:canPerformGestures="true"` in `compass_accessibility_service.xml`.
+- Disclosure copy updated to name the tap action, shipped before the capability is reachable.
+- The tap is user-started per reconnect run, never a background loop, and gated on `SettingsRepository.getCompassDisclosureAccepted()` like `CompassHeadingSource.captureHeading()`.
+
+## What the target app can observe on the chosen path
+
+1. **Enabled-service enumeration** (`Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES`, `AccessibilityManager.getEnabledAccessibilityServiceList`). The app's service is already listed when the compass feature is enabled. Marginal detectability from this path is zero.
+2. **Event flags.** On API 34 and later, gesture-originated events carry `MotionEvent.FLAG_IS_ACCESSIBILITY_EVENT`. This is documented platform behavior, not yet confirmed by a probe on this project's devices (see "Pending measurements").
+3. **Event attributes.** Device id, source, tool type, pressure and size of the injected stream. Expected to differ from a finger; the probe in "Pending measurements" records the actual values.
+4. **Timing regularity.** Controlled by the tap policy and human-like parameters below.
+
+## Locate and classify the control
+
+- **Region.** Search the same top-right region the compass uses (`AppConstants.CompassTrackingConstants.SEARCH_X_MIN_PCT` and `SEARCH_Y_MAX_PCT`), reused rather than duplicated. The HUD shifted up in the latest build of the target app, so the region is re-measured on test devices and the measured fractions recorded in the doc. **Pending measurement.**
+- **Locate by shape and color, not by text.** Find the control as a colored blob within icon-size bounds, the same approach as `findBestIconBlob` in the compass service. This is language-independent.
+- **Size.** Bounds are fractions of the screen's short side, so they hold across screen sizes.
+- **Two states.** Classification uses the blob's dominant color (HSV hue, saturation, value ranges): exactly "off" and "on". The measured HSV ranges for each state, per device and per theme (light, dark), brightness (min, max) and night mode, are recorded here. **Pending measurement.**
+- **Third value.** Classification returns "unknown" when the blob is not found or its color is outside both measured ranges. "Unknown" never taps.
+
+## Tap policy
+
+- Tap only when the control reads "off", confirmed by two consecutive screenshots 400 ms apart. Never tap on "on" or "unknown".
+- After a tap, wait 4 s, then re-screenshot and re-classify.
+- At most 3 taps per run, with a 5 s gap between failed attempts. Abort and report after the third failure.
+
+## Human-like timing and jitter
+
+Starting points, drawn fresh for every tap from `kotlin.random.Random`:
+
+- Pre-tap delay after a confirmed "off": uniform 700 to 2200 ms.
+- Tap position: Gaussian around the blob center, sigma = 15% of the blob's width and height, clamped inside the blob bounds.
+- Gesture duration: uniform 45 to 130 ms.
+
+The implement task may tune these only against evidence from the reliability proof.
+
+## Observed on test device
+
+Recorded on the one attached device during this investigation:
+
+- Pixel, Android API 36 (`ro.build.version.sdk` = 36), serial 32221FDH2001SU.
+- Enabled accessibility services already include a third-party automation app's service. This means the enumeration row above is already non-empty on a real device, so adding the app's service does not make the device stand out in a new way.
+
+## Pending measurements
+
+These need the target app's HUD in both states, a companion device, and more than one device or theme. They were not available in the investigation run and are marked pending rather than estimated.
+
+- Control bounding box as fractions of width and height, per device.
+- HSV ranges for "off" and "on", per device, per theme, brightness and night mode.
+- Probe of `MotionEvent` flags, source, device id, tool type, pressure and size for a real finger tap, `adb shell input tap`, and `dispatchGesture` taps, on API 34 and later.
+
+## Open risks
+
+- **Play review.** Gesture use under a service that declares `isAccessibilityTool="false"` is a review risk. Mitigation: user-started runs only, disclosure updated before release, no background loop.
+- **Target-app changes.** A HUD move or color change breaks classification. The "unknown" value prevents false taps, but reconnect then fails until the ranges are re-measured.
+
+## Open work
+
+- `implement-reconnect-by-tap-with-the-chosen-method`: code, manifest flag, disclosure copy, tests, and the AGENTS.md, README and wiki rows.
+- `prove-bluetooth-reconnect-tap-100-reliable-on-real-devices`: repeated disconnect and reconnect matrix on real devices.
