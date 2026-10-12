@@ -285,17 +285,23 @@ class CompassAccessibilityService :
                 screenWidth = resources.displayMetrics.widthPixels,
                 capture = {
                     val bitmap = takeScreenshotBitmap()
-                    bitmap?.let {
-                        val soft = if (it.config == Bitmap.Config.HARDWARE) it.copy(Bitmap.Config.ARGB_8888, false) else it
-                        val pixels = IntArray(soft.width * soft.height)
-                        soft.getPixels(pixels, 0, soft.width, 0, 0, soft.width, soft.height)
-                        val control = ReconnectControlDetector.detect(pixels, soft.width, soft.height)
-                        if (soft !== it) soft.recycle()
-                        it.recycle()
-                        control
-                    }
+                    val control =
+                        bitmap?.let {
+                            val soft = if (it.config == Bitmap.Config.HARDWARE) it.copy(Bitmap.Config.ARGB_8888, false) else it
+                            val pixels = IntArray(soft.width * soft.height)
+                            soft.getPixels(pixels, 0, soft.width, 0, 0, soft.width, soft.height)
+                            val detected = ReconnectControlDetector.detect(pixels, soft.width, soft.height)
+                            if (soft !== it) soft.recycle()
+                            it.recycle()
+                            detected
+                        }
+                    Log.d(TAG, "Reconnect read: ${control?.state ?: "NONE"}")
+                    control
                 },
-                tap = { x, y, durationMs -> dispatchTap(x, y, durationMs) },
+                tap = { x, y, durationMs ->
+                    Log.d(TAG, "Reconnect tap: $x,$y,$durationMs")
+                    dispatchTap(x, y, durationMs)
+                },
             )
         Log.d(TAG, "Reconnect check: $result")
     }
