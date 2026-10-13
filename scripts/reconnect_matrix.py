@@ -207,7 +207,11 @@ def open_log_stream(serial):
     return proc, q
 
 
-def collect_until(stream, done, timeout_s):
+def say(msg):
+    print(f"  [{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+def collect_until(stream, done, timeout_s, echo=False):
     """Read tagged lines from an open stream until done(line) is true or the timeout passes."""
     _, q = stream
     lines = []
@@ -219,8 +223,13 @@ def collect_until(stream, done, timeout_s):
             continue
         if TAG in line:
             lines.append(line.rstrip())
+            if echo and re.search(r"Reconnect (read|tap|check)", line):
+                say(line.split(": ", 1)[-1].strip())
             if done(line):
                 break
+    else:
+        if echo:
+            say(f"no check result after {timeout_s} s")
     return lines
 
 
@@ -275,23 +284,29 @@ def save_shot(png, device, block, cycle, phase, cls):
 
 
 def cmd_auto(args):
+    print(f"auto: {args.device_slug} block {args.block}, {args.cycles} cycles, companion ...{args.mac_suffix}", flush=True)
     for cycle in range(1, args.cycles + 1):
+        print(f"[{args.block} {cycle}/{args.cycles}]", flush=True)
         stream = open_log_stream(args.serial)
         try:
+            say("cycling the Bluetooth adapter")
             toggle_ok = toggle_adapter(args.serial)
             acl_dropped = wait_for_link(args.serial, args.mac_suffix, "Disconnected", 60)
+            say(f"adapter toggle ok={toggle_ok}, companion link dropped={acl_dropped}")
             time.sleep(TOGGLE_SETTLE_S)
             before = take_screenshot(args.serial)
             before_class = classify_screenshot(before)
             before_shot = save_shot(before, args.device_slug, args.block, cycle, "before", before_class)
             toggle_ok = toggle_ok and before_class == "OFF"
 
+            say(f"before screenshot reads {before_class}; waiting for the app's next check")
             started = time.monotonic()
-            lines = collect_until(stream, lambda line: bool(TERMINAL_RE.search(line)), CYCLE_TIMEOUT_S + 60)
+            lines = collect_until(stream, lambda line: bool(TERMINAL_RE.search(line)), CYCLE_TIMEOUT_S + 60, echo=True)
             seconds = round(time.monotonic() - started, 1)
         finally:
             stream[0].terminate()
         info = classify_logs(lines)
+        say("waiting for the companion link to come back")
         connected = wait_for_link(args.serial, args.mac_suffix, "Connected", 30)
         time.sleep(TOGGLE_SETTLE_S)
         after = take_screenshot(args.serial)
