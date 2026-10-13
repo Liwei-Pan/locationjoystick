@@ -63,6 +63,7 @@ Implemented changes:
 
 - Tap only when the control reads "off", confirmed by two consecutive screenshots 400 ms apart. Never tap on "on" or "unknown".
 - After a tap, wait 4 s, then read up to 5 times, 2 s apart. Stop as soon as one read is "on". Tap again only when all 5 reads are "off", so a connected or connecting companion is never tapped again.
+- A fresh read is taken after the pre-tap pause, right before every tap. "On" ends the run as reconnected with no tap; "unknown" never taps (the run fails if a tap already fired). This closes the window where the companion connects during the pause.
 - At most 3 taps per run. Abort and report after the third failure.
 
 ## Human-like timing and jitter
@@ -109,7 +110,7 @@ These need the target app's HUD in both states, a companion device, and more tha
 | Pixel 7 | already-on checks | not run | |
 
 - The adapter-toggle pilot gate ("fewer than 10 of 10 cycles report `toggle_ok`, do not run the full matrix") was not met. Some runs reported `toggle_ok` false.
-- A tap fired while the control read ON in two recorded cycles. This breaks the zero-taps-when-on rule.
+- A tap fired while the control read ON in two recorded cycles. This breaks the zero-taps-when-on rule. Both rows predate 8ee8df9b; the pre-tap re-read closes the remaining window between the last read and the tap. The matrix still needs rerunning on the current build.
 - Only one device was used. The task's >= 3 devices requirement was dropped by user decision, so the one-device run cannot close the task on its own.
 - Full matrix: 5 blocks x 20 cycles per device, each cycle needs the companion disconnected and confirmed, so most of it has to run with an operator at the device.
 

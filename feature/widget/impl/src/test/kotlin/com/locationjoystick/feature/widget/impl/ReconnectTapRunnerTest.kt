@@ -29,7 +29,7 @@ class ReconnectTapRunnerTest {
         runTest {
             val taps = Taps()
             val result =
-                runReconnectTap(1080, reads(off, off, on), { _, _, _ ->
+                runReconnectTap(1080, reads(off, off, off, on), { _, _, _ ->
                     taps.count++
                     true
                 })
@@ -74,7 +74,7 @@ class ReconnectTapRunnerTest {
         runTest {
             val taps = Taps()
             val result =
-                runReconnectTap(1080, reads(off, off, off, off, on), { _, _, _ ->
+                runReconnectTap(1080, reads(off, off, off, off, off, on), { _, _, _ ->
                     taps.count++
                     true
                 })
@@ -86,9 +86,9 @@ class ReconnectTapRunnerTest {
     fun `retap only after every poll read is off`() =
         runTest {
             val taps = Taps()
-            // 2 confirm reads + 5 poll reads all OFF, second tap, then ON.
+            // 2 confirm + pre-tap + 5 poll reads all OFF, pre-tap of tap 2 OFF, second tap, then ON.
             val result =
-                runReconnectTap(1080, reads(off, off, off, off, off, off, off, on), { _, _, _ ->
+                runReconnectTap(1080, reads(off, off, off, off, off, off, off, off, off, on), { _, _, _ ->
                     taps.count++
                     true
                 })
@@ -101,12 +101,41 @@ class ReconnectTapRunnerTest {
         runTest {
             val taps = Taps()
             val result =
-                runReconnectTap(1080, reads(off, off, null), { _, _, _ ->
+                runReconnectTap(1080, reads(off, off, off, null), { _, _, _ ->
                     taps.count++
                     true
                 })
             assertEquals(ReconnectRunResult.FAILED, result)
             assertEquals(1, taps.count)
+        }
+
+    @Test
+    fun `control turning on during the pre-tap pause never taps`() =
+        runTest {
+            val taps = Taps()
+            val result = runReconnectTap(1080, reads(off, off, on), { _, _, _ -> taps.count++ >= 0 })
+            assertEquals(ReconnectRunResult.RECONNECTED, result)
+            assertEquals(0, taps.count)
+        }
+
+    @Test
+    fun `control turning on during the pre-tap pause of a retap never taps`() =
+        runTest {
+            val taps = Taps()
+            // 2 confirm + pre-tap + 5 polls OFF, then ON at the retap's pre-tap read.
+            val result =
+                runReconnectTap(1080, reads(off, off, off, off, off, off, off, off, on), { _, _, _ -> taps.count++ >= 0 })
+            assertEquals(ReconnectRunResult.RECONNECTED, result)
+            assertEquals(1, taps.count)
+        }
+
+    @Test
+    fun `null on the pre-tap read never taps`() =
+        runTest {
+            val taps = Taps()
+            val result = runReconnectTap(1080, reads(off, off, null), { _, _, _ -> taps.count++ >= 0 })
+            assertEquals(ReconnectRunResult.NOT_OFF, result)
+            assertEquals(0, taps.count)
         }
 
     @Test

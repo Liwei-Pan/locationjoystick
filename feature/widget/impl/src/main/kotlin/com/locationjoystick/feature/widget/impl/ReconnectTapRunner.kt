@@ -30,7 +30,8 @@ internal fun jitteredTapPoint(
 
 /**
  * One reconnect run. Taps only on a fresh OFF read: two OFF reads, then up to MAX_TAPS taps, each
- * followed by a poll window; a retap needs every poll read OFF. An absent or unknown control (null) never taps.
+ * preceded by a read taken after the pre-tap pause (ON ends the run, null never taps) and followed by
+ * a poll window; a retap needs every poll read OFF. An absent or unknown control (null) never taps.
  */
 internal suspend fun runReconnectTap(
     screenWidth: Int,
@@ -38,12 +39,17 @@ internal suspend fun runReconnectTap(
     tap: suspend (x: Int, y: Int, durationMs: Long) -> Boolean,
     random: Random = Random.Default,
 ): ReconnectRunResult {
-    var control = capture()?.takeIf { it.state == ReconnectState.OFF } ?: return ReconnectRunResult.NOT_OFF
+    capture()?.takeIf { it.state == ReconnectState.OFF } ?: return ReconnectRunResult.NOT_OFF
     delay(ReconnectTapConstants.CONFIRM_DELAY_MS)
-    control = capture()?.takeIf { it.state == ReconnectState.OFF } ?: return ReconnectRunResult.NOT_OFF
+    capture()?.takeIf { it.state == ReconnectState.OFF } ?: return ReconnectRunResult.NOT_OFF
 
-    repeat(ReconnectTapConstants.MAX_TAPS) {
+    repeat(ReconnectTapConstants.MAX_TAPS) { attempt ->
         delay(random.nextLong(ReconnectTapConstants.PRE_TAP_DELAY_MIN_MS, ReconnectTapConstants.PRE_TAP_DELAY_MAX_MS + 1))
+        // The companion may have connected during the pause: re-read so a tap never lands on ON.
+        val control =
+            capture()
+                ?: return if (attempt == 0) ReconnectRunResult.NOT_OFF else ReconnectRunResult.FAILED
+        if (control.state == ReconnectState.ON) return ReconnectRunResult.RECONNECTED
         val (x, y) = jitteredTapPoint(control, screenWidth, random)
         tap(x, y, random.nextLong(ReconnectTapConstants.GESTURE_MIN_MS, ReconnectTapConstants.GESTURE_MAX_MS + 1))
         delay(ReconnectTapConstants.SETTLE_DELAY_MS)
@@ -51,7 +57,6 @@ internal suspend fun runReconnectTap(
         repeat(ReconnectTapConstants.SETTLE_POLL_READS) { read ->
             val after = capture() ?: return ReconnectRunResult.FAILED
             if (after.state == ReconnectState.ON) return ReconnectRunResult.RECONNECTED
-            control = after
             if (read < ReconnectTapConstants.SETTLE_POLL_READS - 1) delay(ReconnectTapConstants.SETTLE_POLL_INTERVAL_MS)
         }
     }
