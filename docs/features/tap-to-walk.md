@@ -208,6 +208,43 @@ API 30 (`takeScreenshot`) — no fallback exists below it. On API 28–29, the "
 
 The disclosure, the onboarding step and the service's system-settings description are localized in every supported locale with identical keys (docs/features/localization.md). The Chinese strings keep the English word "Accessibility" in parentheses next to 无障碍 so a reviewer testing in any locale sees the term Play asks for.
 
+## Bearing registration investigation
+
+Goal: recover the map's rotation and scale from a screenshot of the game map, without a compass icon and without
+reading the other app's memory. Method: register the game screenshot against this app's own map rendered around
+the same position. Harness: `scripts/registration_bench.py` (run with `scripts/registration-bench/.venv`).
+
+Dataset: 6 pairs on one device (Pixel 5, 1080x2340, 440 dpi). Each pair is a game screenshot and our own map
+screenshot taken over adb, with the same pan applied to both. The pairs are not geometrically matched.
+
+Measured on the host (laptop) with the bench `run`/`report` commands:
+
+| kind | method | n | rejected | median score | median angle err (deg) | median scale err (%) | p50 ms | max ms |
+|---|---|---|---|---|---|---|---|---|
+| real | logpolar | 6 | 0 | -0.113 | n/a | n/a | 541 | 983 |
+| real | orb_similarity | 6 | 0 | 0.732 | n/a | n/a | 90 | 129 |
+| real | orb_homography | 6 | 0 | 0.732 | n/a | n/a | 75 | 101 |
+| synthetic | logpolar | 6 | 0 | 0.081 | 25.00 | 16.70 | 510 | 623 |
+| synthetic | orb_similarity | 6 | 0 | 0.844 | 0.00 | 0.02 | 81 | 151 |
+| synthetic | orb_homography | 6 | 0 | 0.875 | n/a | n/a | 70 | 132 |
+
+- "real" rows: game screenshot against our own map. There is no ground truth, so these show only consistency.
+  The logpolar score is a normalised cross-correlation after warping, and is negative, so it does not align.
+- "synthetic" rows: the same game screenshot against a copy warped by a known 25 degree rotation and 1.2 scale.
+  This measures the algorithm on the same image modality, not game-to-map registration.
+- Latency is host-side only. On-device compute is not measured yet (pending).
+
+Not yet measured, so no threshold is set: landing error on real game-to-map pairs (needs ground truth), the
+verification-score threshold, the reject rate per zoom, rotation and area type, the number of devices and the
+on-device latency budget.
+
+Method choice: none yet. ORB + similarity recovers synthetic rotation to within 0.04 degrees, but the real-pair
+score cannot be checked against truth, so it is not a basis for accepting a result. Logpolar recovers the angle on
+synthetic pairs but not the scale, and fails on real pairs.
+
+Not measured, dropped by user direction: on-screen north indicator, device rotation sensors, gesture-derived heading
+and the manual overlay.
+
 ## Warning Screen
 
 Enabling the overlay opens `CompassDisclosureDialog` (see "Prominent Disclosure" above) with two
