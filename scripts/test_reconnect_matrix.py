@@ -91,6 +91,12 @@ def test_classify_screenshot_blank_is_none():
     assert rm.classify_screenshot(_png(None, size=(864, 1920))) == "NONE"
 
 
+def test_normalize_name_matches_companion():
+    for n in ("Pokémon GO Plus", "POKEMON GO PLUS +", "pokemon go plus+", "Pokémon GO  Plus+"):
+        assert rm.normalize_name(n).startswith(rm.COMPANION_NAME), n
+    assert not rm.normalize_name("Bose QC Ultra Earbuds").startswith(rm.COMPANION_NAME)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:

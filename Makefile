@@ -1,3 +1,7 @@
+.PHONY: stop clean build bundle format lint install-on-phone reinstall-on-phone start-on-phone tail-log-on-phone \
+	test coverage coverage-open screenshot screenshot-playstore accessibility-video wiki-changelog wiki-serve \
+	smoke-test smoke-test-one reconnect-auto reconnect-already-on reconnect-summary reconnect-selfcheck
+
 stop:
 	pkill -f gradlew || true
 	pkill -f "gradle" || true
@@ -14,8 +18,6 @@ clean:
 	find . -name "build" -type d -not -path "*/.git/*" | xargs rm -rf
 	find . -name ".gradle" -type d -not -path "*/.git/*" | xargs rm -rf
 
-.PHONY: stop clean build bundle format lint install-on-phone reinstall-on-phone start-on-phone tail-log-on-phone \
-	test coverage coverage-open screenshot screenshot-playstore accessibility-video wiki-changelog wiki-serve smoke-test smoke-test-one
 build:
 	./gradlew assembleRelease
 
@@ -72,3 +74,21 @@ smoke-test:
 
 smoke-test-one:
 	./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=$(SMOKE_TEST_CLASS)
+
+# Bluetooth reconnect tap matrix (docs/features/bluetooth-reconnect-tap.md).
+# make reconnect-auto CYCLES=10   (SERIAL, DEVICE, MAC, BLOCK optional: script picks)
+RECONNECT = python3 scripts/reconnect_matrix.py
+CYCLES ?= 100
+DEVICE_ARGS = $(if $(SERIAL),--serial $(SERIAL)) $(if $(DEVICE),--device-slug $(DEVICE)) $(if $(MAC),--mac-suffix $(MAC)) $(if $(BLOCK),--block $(BLOCK))
+
+reconnect-auto:
+	$(RECONNECT) auto $(DEVICE_ARGS) --cycles $(CYCLES)
+
+reconnect-already-on:
+	$(RECONNECT) already-on $(DEVICE_ARGS)
+
+reconnect-summary:
+	$(RECONNECT) summary
+
+reconnect-selfcheck:
+	python3 scripts/test_reconnect_matrix.py

@@ -3,21 +3,26 @@
 
 Subcommands (stdlib plus adb on PATH; `auto` also needs numpy and Pillow; raw results go to
 scripts/reconnect-matrix/, gitignored):
-    run --serial S --mac-suffix D3:24 --device-slug pixel7 --block a|b|c|d|e --cycles 20
+    run [--serial S] [--mac-suffix D3:24] [--device-slug pixel7] --block a|b|c|d|e --cycles 20
         Operator disconnects the companion and presses Enter; the harness waits for the app's
-        check (one per 5-minute loop), then confirms the link with dumpsys. One row per cycle.
-    already-on --serial S --mac-suffix D3:24 --device-slug pixel7 --checks 12
+        check (one per loop, 10 s debug / 60 s release), then confirms the link with dumpsys. One row per cycle.
+    already-on [--serial S] [--mac-suffix D3:24] [--device-slug pixel7] --checks 12
         Companion connected; every check must read ON, tap nothing and return NOT_OFF.
-    auto --serial S --mac-suffix D3:24 --device-slug pixel7 --block a|b|d|e --cycles 100
+    auto [--serial S] [--mac-suffix D3:24] [--device-slug pixel7] --block a|b|d|e --cycles 100
         No operator per cycle: cycles the phone's Bluetooth adapter to drop the companion link,
         waits for the app's check, and saves a before and after screenshot per cycle named with
         its host-side class (ON/OFF/NONE) for manual review in scripts/reconnect-matrix/shots/.
         Block c needs an operator (screen off, foreground the game), so it stays in `run`.
-        At 300 s per loop a 100-cycle block takes up to about 8 hours.
-    corpus --serial S --device-slug pixel7 --state on|off --theme day|night --brightness min|max
+        At 10 s per loop (debug build) a 100-cycle block takes about 30 minutes.
+    corpus [--serial S] [--device-slug pixel7] --state on|off --theme day|night --brightness min|max
         Captures one labelled screencap into scripts/reconnect-matrix/corpus/.
     summary
         Prints per-device/per-block pass counts as a markdown table.
+
+--serial omitted: the only connected device is used, or you pick from a list.
+    --device-slug omitted: taken from the phone's model name.
+    --mac-suffix omitted: the bonded 'Pokemon GO Plus' or 'Pokemon GO Plus +' (accents, case, spaces ignored), else the one with a live link, else pick by name from a list.
+    --block omitted: a.
 
 Self-check:
     python3 scripts/test_reconnect_matrix.py
@@ -31,6 +36,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -38,8 +44,8 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "scripts" / "reconnect-matrix"
 ROWS = OUT / "cycles.jsonl"
 TAG = "CompassAccessibilitySvc"
-LOOP_INTERVAL_S = 300  # AppConstants.ReconnectTapConstants.CHECK_INTERVAL_MS
-CYCLE_TIMEOUT_S = 390  # one loop interval + up to 3 taps with settles
+LOOP_INTERVAL_S = 60  # AppConstants.ReconnectTapConstants.CHECK_INTERVAL_MS (release); debug is 10 s
+CYCLE_TIMEOUT_S = 150  # one loop interval + up to 3 taps with settles
 
 ACL_RE = re.compile(r"aclStateChangeCallback: State:(Connected|Disconnected)")
 COUNT_RE = re.compile(r"Connected devices:\s*(\d+)")
@@ -376,36 +382,103 @@ def cmd_summary(_args):
         print(f"| {device} | {block} | {passed} / {total} |")
 
 
+def list_devices():
+    out = subprocess.run(["adb", "devices"], capture_output=True, text=True).stdout
+    return [l.split()[0] for l in out.splitlines()[1:] if l.strip().endswith("\tdevice")]
+
+
+def device_model(serial):
+    return adb(serial, "shell", "getprop", "ro.product.model").strip().lower().replace(" ", "") or serial
+
+
+# matches both 'Pokemon GO Plus' and 'Pokemon GO Plus +' after normalize_name
+COMPANION_NAME = "pokemongoplus"
+COMPANION_CACHE = OUT / "companion.txt"
+BONDED_RE = re.compile(r"XX:XX:XX:XX:(\w\w:\w\w)\(.*\[ACL BR/EDR:(\w) LE:(\w)\].*\]\s*(.*)$")
+
+
+def normalize_name(name):
+    folded = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    return "".join(folded.lower().split())
+
+
+def pick_companion(serial):
+    """--mac-suffix omitted: the one bonded device with a live link, else ask by name."""
+    dump = adb(serial, "shell", "dumpsys", "bluetooth_manager")
+    bonded = [(m.group(1), "Y" in (m.group(2), m.group(3)), m.group(4).strip()) for l in dump.splitlines() if (m := BONDED_RE.search(l)) and m.group(4).strip()]
+    named = [b for b in bonded if normalize_name(b[2]).startswith(COMPANION_NAME)]
+    if not named and COMPANION_CACHE.exists():
+        # the phone only lists devices it has seen since its Bluetooth stack started
+        mac = COMPANION_CACHE.read_text().strip()
+        print(f"companion not listed by the phone; using last seen ...{mac}")
+        return mac
+    bonded = named or bonded
+    if len(named) == 1:
+        COMPANION_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        COMPANION_CACHE.write_text(named[0][0])
+    live = [b for b in bonded if b[1]]
+    if len(named) == 1:
+        print(f"companion: {named[0][2]} ({named[0][0]})")
+        return named[0][0]
+    if len(live) == 1:
+        print(f"companion: {live[0][2]} ({live[0][0]})")
+        return live[0][0]
+    if not bonded:
+        sys.exit("phone lists no Bluetooth device: press the Pokemon GO Plus button so it advertises, then rerun (or pass --mac-suffix)")
+    choices = live or bonded
+    for i, (mac, _, name) in enumerate(choices, 1):
+        print(f"{i}. {name}  ...{mac}")
+    while True:
+        c = input("Pick companion number: ").strip()
+        if c.isdigit() and 1 <= int(c) <= len(choices):
+            return choices[int(c) - 1][0]
+
+
+def pick_device():
+    """--serial omitted: use the only device, else ask."""
+    devices = list_devices()
+    if not devices:
+        sys.exit("no adb device in state 'device'")
+    if len(devices) == 1:
+        return devices[0]
+    for i, d in enumerate(devices, 1):
+        print(f"{i}. {d}  {device_model(d)}")
+    while True:
+        choice = input("Pick device number: ").strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(devices):
+            return devices[int(choice) - 1]
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     r = sub.add_parser("run")
-    r.add_argument("--serial", required=True)
-    r.add_argument("--mac-suffix", required=True)
-    r.add_argument("--device-slug", required=True)
-    r.add_argument("--block", required=True, choices=list("abcde"))
+    r.add_argument("--serial")
+    r.add_argument("--mac-suffix")
+    r.add_argument("--device-slug")
+    r.add_argument("--block", default="a", choices=list("abcde"))
     r.add_argument("--cycles", type=int, default=20)
     r.set_defaults(fn=cmd_run)
 
     au = sub.add_parser("auto")
-    au.add_argument("--serial", required=True)
-    au.add_argument("--mac-suffix", required=True)
-    au.add_argument("--device-slug", required=True)
-    au.add_argument("--block", required=True, choices=list("abde"))
+    au.add_argument("--serial")
+    au.add_argument("--mac-suffix")
+    au.add_argument("--device-slug")
+    au.add_argument("--block", default="a", choices=list("abde"))
     au.add_argument("--cycles", type=int, default=100)
     au.set_defaults(fn=cmd_auto)
 
     a = sub.add_parser("already-on")
-    a.add_argument("--serial", required=True)
-    a.add_argument("--mac-suffix", required=True)
-    a.add_argument("--device-slug", required=True)
+    a.add_argument("--serial")
+    a.add_argument("--mac-suffix")
+    a.add_argument("--device-slug")
     a.add_argument("--checks", type=int, default=12)
     a.set_defaults(fn=cmd_already_on)
 
     c = sub.add_parser("corpus")
-    c.add_argument("--serial", required=True)
-    c.add_argument("--device-slug", required=True)
+    c.add_argument("--serial")
+    c.add_argument("--device-slug")
     c.add_argument("--state", required=True, choices=["on", "off"])
     c.add_argument("--theme", required=True, choices=["day", "night"])
     c.add_argument("--brightness", required=True, choices=["min", "max"])
@@ -415,6 +488,12 @@ def main():
     s.set_defaults(fn=cmd_summary)
 
     args = p.parse_args()
+    if hasattr(args, "serial"):
+        args.serial = args.serial or pick_device()
+        if not getattr(args, "device_slug", True):
+            args.device_slug = device_model(args.serial)
+        if not getattr(args, "mac_suffix", True):
+            args.mac_suffix = pick_companion(args.serial)
     args.fn(args)
 
 
