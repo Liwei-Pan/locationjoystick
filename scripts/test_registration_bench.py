@@ -240,6 +240,38 @@ def test_frame_meta_has_only_state_fields():
     assert "SECRET-SENTINEL" not in repr(row) and row["pos"] == [1.0, 2.0] and row["state_bearing"] == 45.0
 
 
+def _needle_frame(angle_deg, size=40, w=1080, h=2340):
+    """Blank frame with a red teardrop (tip toward angle_deg, clockwise from up) and a white tail in the top-right."""
+    img = np.zeros((h, w, 3), np.uint8)
+    cx, cy = 985, 150
+    a = math.radians(angle_deg)
+    up = np.array([math.sin(a), -math.cos(a)])
+    side = np.array([-up[1], up[0]])
+    c = np.array([cx, cy], float)
+    tri = lambda tip, base: np.array([c + up * tip, c + side * base - up * 2, c - side * base - up * 2]).astype(np.int32)
+    cv2.fillPoly(img, [tri(size / 2, size / 4)], (0, 0, 255))
+    cv2.fillPoly(img, [-tri(size / 2, size / 4) + 2 * c.astype(np.int32)], (255, 255, 255))
+    return img
+
+
+def test_needle_heading_reads_rotated_synthetic_needle():
+    for ang in (0, 40, -40, 135, -170):
+        got = rb.needle_heading(_needle_frame(ang))
+        assert got is not None and abs((got["angle_deg"] - ang + 180) % 360 - 180) < 8, (ang, got)
+    assert rb.needle_heading(np.zeros((2340, 1080, 3), np.uint8)) is None
+    assert rb.needle_heading(_needle_frame(0, size=400)) is None  # larger than 0.06 of the short side
+
+
+def test_twist_events_pairs_two_fingers_and_releases():
+    ev = rb.twist_events(540, 1500, 250, 0.0, 40.0)
+    xs = [v for t, c, v in ev if t == 3 and c == 0x35]
+    ys = [v for t, c, v in ev if t == 3 and c == 0x36]
+    assert len(xs) == len(ys) == 48 and all(0 <= x <= 1079 for x in xs) and all(0 <= y <= 2339 for y in ys)
+    assert {v for t, c, v in ev if c == 0x2F} == {0, 1}
+    assert [v for t, c, v in ev if c == 0x39 and v == -1] == [-1, -1]
+    assert ev[-2:] == [(3, 0x39, -1), (0, 0, 0)]
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:

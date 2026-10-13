@@ -391,6 +391,64 @@ def patch_offset(before, after, p, anchor, half=100, search=150, scales=(1.0, 1.
     return best
 
 
+# Mirrors CompassTrackingConstants (core/common AppConstants.kt) and CompassAccessibilityService.detectNorthAngle.
+NEEDLE_X_MIN_PCT, NEEDLE_Y_MAX_PCT = 0.55, 0.35
+NEEDLE_MIN_FRAC, NEEDLE_MAX_FRAC, NEEDLE_MIN_PX = 0.008, 0.06, 20
+
+
+def needle_heading(img_bgr):
+    """Python port of the shipped needle detector: None or {bbox, centroid, angle_deg, px} (window coords are full-frame).
+
+    angle_deg is clockwise from screen-up of the tapered tip, full -180..180 (principal axis + third moment).
+    """
+    h, w = img_bgr.shape[:2]
+    x0, sh = int(NEEDLE_X_MIN_PCT * w), int(NEEDLE_Y_MAX_PCT * h)
+    if w - x0 <= 0 or sh <= 0:
+        return None
+    hsv = cv2.cvtColor(img_bgr[:sh, x0:], cv2.COLOR_BGR2HSV)  # H 0..179 (= degrees / 2)
+    red = (((hsv[..., 0] < 7.5) | (hsv[..., 0] > 172.5)) & (hsv[..., 1] > 127.5) & (hsv[..., 2] > 76.5))
+    short = min(w, h)
+    min_dim, max_dim = max(int(NEEDLE_MIN_FRAC * short), 4), int(NEEDLE_MAX_FRAC * short)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(red.astype(np.uint8), connectivity=4)
+    best = None
+    for i in range(1, n):
+        bx, by, bw, bh, cnt = stats[i]
+        if min_dim <= bw <= max_dim and min_dim <= bh <= max_dim and cnt >= NEEDLE_MIN_PX:
+            if best is None or cnt > best[4]:
+                best = (bx, by, bw, bh, cnt, i)
+    if best is None:
+        return None
+    bx, by, bw, bh, cnt, i = best
+    ys, xs = np.nonzero(labels == i)
+    cx, cy = xs.mean(), ys.mean()
+    theta = 0.5 * math.atan2(2 * ((xs - cx) * (ys - cy)).mean(), ((xs - cx) ** 2).mean() - ((ys - cy) ** 2).mean())
+    ax, ay = math.cos(theta), math.sin(theta)
+    if (((xs - cx) * ax + (ys - cy) * ay) ** 3).sum() < 0:
+        ax, ay = -ax, -ay
+    return {"bbox": [int(bx + x0), int(by), int(bw), int(bh)], "centroid": [float(cx + x0), float(cy)],
+            "angle_deg": math.degrees(math.atan2(ax, -ay)), "px": int(cnt)}
+
+
+def twist_events(cx, cy, radius, start_deg, delta_deg, steps=24):
+    """Ordered (type, code, value) touch events (protocol B) for two fingers twisting about (cx, cy), then released."""
+    EV_ABS, EV_SYN = 3, 0
+    SLOT, TID, X, Y, SYN = 0x2F, 0x39, 0x35, 0x36, 0
+    ev = []
+    for k in range(steps):
+        a = math.radians(start_deg + delta_deg * k / max(steps - 1, 1))
+        for slot, sign in ((0, 1), (1, -1)):
+            ev.append((EV_ABS, SLOT, slot))
+            if k == 0:
+                ev.append((EV_ABS, TID, 100 + slot))
+            ev.append((EV_ABS, X, int(round(cx + sign * radius * math.cos(a)))))
+            ev.append((EV_ABS, Y, int(round(cy + sign * radius * math.sin(a)))))
+        ev.append((EV_SYN, SYN, 0))
+    for slot in (0, 1):
+        ev += [(EV_ABS, SLOT, slot), (EV_ABS, TID, -1)]
+    ev.append((EV_SYN, SYN, 0))
+    return ev
+
+
 def commanded_target(lat, lon, bearing_deg, dist_m):
     """(lat, lon) dist_m metres from the start along a compass bearing (flat earth, 111320 m/deg)."""
     b = math.radians(bearing_deg)
@@ -698,6 +756,120 @@ def cmd_capture(args):
                         "pan_step": [args.dx, args.dy], "captured_at": time.time()}, indent=2)
         )
         print(f"captured {pair}")
+
+
+def _uinput_script(events, width=1080, height=2340, frame_ms=20):
+    """`uinput` JSON stream (register a virtual multitouch screen, inject each event frame, delay) for events."""
+    import json
+
+    def info(code, top):
+        return {"code": code, "info": {"value": 0, "minimum": 0, "maximum": top, "fuzz": 0, "flat": 0,
+                                       "resolution": 0}}
+
+    cmds = [{"id": 1, "command": "register", "name": "lj-probe-touch", "vid": 0x18D1, "pid": 0x4E11, "bus": "usb",
+             "configuration": [{"type": 100, "data": [1, 3]}, {"type": 101, "data": [0x14A]},
+                               {"type": 103, "data": [0x2F, 0x35, 0x36, 0x39]}, {"type": 110, "data": [1]}],
+             "abs_info": [info(0x2F, 9), info(0x35, width - 1), info(0x36, height - 1), info(0x39, 65535)]},
+            {"id": 1, "command": "delay", "duration": 500}]
+    frame = [1, 0x14A, 1]  # BTN_TOUCH down with the first frame
+    for t, c, v in events:
+        frame += [t, c, v]
+        if (t, c) == (0, 0):
+            cmds += [{"id": 1, "command": "inject", "events": frame}, {"id": 1, "command": "delay", "duration": frame_ms}]
+            frame = []
+    cmds.append({"id": 1, "command": "inject", "events": [1, 0x14A, 0, 0, 0, 0]})
+    cmds.append({"id": 1, "command": "delay", "duration": 300})
+    return "\n".join(json.dumps(c) for c in cmds)
+
+
+def _twist(serial, events):
+    """Drive a two-finger gesture with `uinput` (a virtual touchscreen, external to the game; `sendevent` is denied)."""
+    import subprocess
+
+    subprocess.run(["adb", "-s", serial, "shell", "uinput -"], input=_uinput_script(events).encode(), check=True)
+
+
+def _annotate_needle(img, found, label):
+    out = img.copy()
+    if found:
+        x, y, w, h = found["bbox"]
+        cv2.rectangle(out, (x, y), (x + w, y + h), (0, 255, 0), 3)
+        a = math.radians(found["angle_deg"])
+        c = (int(found["centroid"][0]), int(found["centroid"][1]))
+        cv2.arrowedLine(out, c, (int(c[0] + 120 * math.sin(a)), int(c[1] - 120 * math.cos(a))), (0, 255, 255), 4)
+    cv2.putText(out, label, (40, 300), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (0, 255, 0), 4)
+    return out
+
+
+def _wrap(d):
+    return (d + 180.0) % 360.0 - 180.0
+
+
+def cmd_probe(args):
+    """Probe the game's needle as an orientation cue: baseline, then per delta reset-tap, twist, reset-tap.
+
+    Stationary; nothing is read from or injected into the game. Raw and annotated frames plus probe.json
+    land in args.out (document the numbers, the user validates the annotated PNGs by eye).
+    """
+    import json
+    import subprocess
+    import time
+
+    s, out = args.serial, Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    orig = subprocess.run(["adb", "-s", s, "shell", "settings", "get", "system", "pointer_location"],
+                          capture_output=True, text=True).stdout.strip() or "0"
+    rows, last = [], {}
+
+    def grab(step):
+        raw = out / f"{len(rows):02d}_{step}.png"
+        _adb_screencap(s, raw)
+        img = cv2.imread(str(raw))
+        last.clear()  # a tap must only ever use the latest frame's blob, never a stale one
+        found = needle_heading(img)
+        ang = None if found is None else round(found["angle_deg"], 1)
+        cv2.imwrite(str(raw).replace(".png", "_annotated.png"), _annotate_needle(img, found, f"{step}: {ang}"))
+        rows.append({"step": step, "found": found is not None, "angle_deg": ang})
+        if found:
+            last.update(found)
+        print(f"{step}: {ang}", flush=True)
+
+    def tap_needle(step):
+        if not last:
+            print(f"{step}: needle not found, tap skipped", flush=True)
+            return
+        subprocess.run(["adb", "-s", s, "shell", "input", "tap", str(int(last["centroid"][0])),
+                        str(int(last["centroid"][1]))], check=True)
+        time.sleep(1.0)
+
+    try:
+        _focus(s, GAME_ACTIVITY)
+        time.sleep(2)
+        grab("baseline_pointer_overlay_on")
+        subprocess.run(["adb", "-s", s, "shell", "settings", "put", "system", "pointer_location", "0"], check=True)
+        time.sleep(0.5)
+        for d in args.deltas:
+            last.clear()
+            grab(f"pre_{d:+g}")
+            tap_needle(f"reset_{d:+g}")
+            grab(f"R0_{d:+g}")
+            _twist(s, twist_events(540, 1500, 250, 0.0, d))
+            time.sleep(1.0)
+            grab(f"T_{d:+g}")
+            tap_needle(f"reset_after_{d:+g}")
+            grab(f"R1_{d:+g}")
+    finally:
+        subprocess.run(["adb", "-s", s, "shell", "settings", "put", "system", "pointer_location", orig],
+                       check=False)
+    by = {r["step"]: r["angle_deg"] for r in rows}
+    summary = {"rows": rows, "found": sum(r["found"] for r in rows), "frames": len(rows), "deltas": {}}
+    for d in args.deltas:
+        r0, t, r1 = by.get(f"R0_{d:+g}"), by.get(f"T_{d:+g}"), by.get(f"R1_{d:+g}")
+        summary["deltas"][f"{d:+g}"] = {
+            "twist_vs_R0_deg": None if None in (r0, t) else round(_wrap(t - r0), 1),
+            "R1_deg": r1}
+    (out / "probe.json").write_text(json.dumps(summary, indent=1))
+    print(json.dumps(summary["deltas"]))
 
 
 def frame_meta(i, t, bearing_cmd, st0, st1):
@@ -1052,6 +1224,11 @@ def main(argv=None):
     tt.add_argument("--need", type=int, default=48)
     tt.add_argument("--tol-m", type=float, default=15.0)
     tt.set_defaults(func=cmd_taptrials)
+    pr = sub.add_parser("probe")
+    pr.add_argument("out")
+    pr.add_argument("--serial", default="0A061FDD4000JF")
+    pr.add_argument("--deltas", type=float, nargs="+", default=[40.0, -40.0, 135.0])
+    pr.set_defaults(func=cmd_probe)
     rep = sub.add_parser("report")
     rep.add_argument("results")
     rep.set_defaults(func=cmd_report)

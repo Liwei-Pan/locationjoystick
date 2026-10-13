@@ -363,6 +363,31 @@ so the fit leaned on the diagonal legs. Camera orientation was recorded once; th
 needs the user to rotate the game camera and rerun, with calibration and taps in one uninterrupted session.
 Walking speed is about 0.56 m/s here, so a full 50-tap run takes hours.
 
+### Game-camera orientation signals
+
+Probe (`registration_bench.py probe`, stationary, screenshots and touch only, nothing read from the game): is
+there an on-screen cue (compass needle, reset affordance) that reveals or fixes the camera orientation?
+
+| Observation (Pixel 5, latest game build) | Result |
+|---|---|
+| Top-right search window with the pointer-location developer overlay off, camera as found | no needle; only a weather icon and red non-needle items |
+| Same window after a two-finger twist of about 40 degrees (map visibly rotated) | still no needle, no compass or reset button appeared |
+| Pointer-location overlay on | its red pressure bar is read by the shipped detector as a needle at 180.0 degrees (false positive) |
+| Red icons elsewhere in the window (raid "R" icon, top-right corner item) | read as needles at 78 to 94 degrees (false positives) |
+
+Verdict: no usable cue. The game shows no heading element in the window the shipped detector scans, rotated or
+not, so there is nothing to reset against and the detector can only return false positives on this build.
+Two-finger camera rotation is drivable from adb by a virtual touchscreen (`uinput`); raw `sendevent` is denied
+to the adb shell on this device. The needle-gated criteria (found in 8 of 10 frames, twist delta, reset to 0)
+could not be met because there is no needle to read.
+
+Incident: the first probe run tapped red blobs as "reset" taps, including a red icon below the companion ball
+and, from a stale position, after a frame with no blob; that opened other screens and maps. Frames 02 onward of
+that run are discarded (flagged in the run's `FLAGGED_WRONG_MAP.txt`); the verdict above uses only the baseline
+frames and the single manual twist captured before any tap. The script now clears the tap target every frame,
+but never taps unless a blob is found in that same frame; no needle exists, so no tapping should be rerun.
+Not covered: one device, one twist; a compass that appears only after a longer rotation was not seen.
+
 ## Warning Screen
 
 Enabling the overlay opens `CompassDisclosureDialog` (see "Prominent Disclosure" above) with two
