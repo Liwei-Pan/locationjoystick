@@ -8,18 +8,19 @@ scripts/reconnect-matrix/, gitignored):
         check (one per loop, 10 s debug / 60 s release), then confirms the link with dumpsys. One row per cycle.
     already-on [--serial S] [--mac-suffix D3:24] [--device-slug pixel7] --checks 12
         Companion connected; every check must read ON, tap nothing and return NOT_OFF.
-    auto [--serial S] [--mac-suffix D3:24] [--device-slug pixel7] --block a|b|d|e --cycles 100
+    auto [--serial S] [--mac-suffix D3:24] [--device-slug pixel7] --block a|b|c|d|e --cycles 100
         No operator per cycle: taps the game's connect control while it reads ON to drop the companion
         link (a software disconnect; it does not cover the accessory powering off or going out of range),
         falling back to cycling the phone's Bluetooth adapter,
         waits for the app's check, and saves a before and after screenshot per cycle named with
         its host-side class (ON/OFF/NONE) for manual review in scripts/reconnect-matrix/shots/.
-        Block c needs an operator (screen off, foreground the game), so it stays in `run`.
+        Block c (screen off, then foreground the game) is driven with adb keyevents: SLEEP, 60 s,
+        WAKEUP, dismiss the swipe lock screen, launch the game.
         At 10 s per loop (debug build) a 100-cycle block takes about 30 minutes.
     corpus [--serial S] [--device-slug pixel7] --state on|off --theme day|night --brightness min|max
         Captures one labelled screencap into scripts/reconnect-matrix/corpus/.
     summary
-        Prints per-device/per-block pass counts as a markdown table.
+        Prints per-device/per-block pass counts as a markdown table, then lists each failed cycle.
 
 --serial omitted: the only connected device is used, or you pick from a list.
     --device-slug omitted: taken from the phone's model name.
@@ -324,6 +325,21 @@ def disconnect_companion(serial, mac_suffix):
     return toggle_ok and wait_for_link(serial, mac_suffix, "Disconnected", 60), "adapter"
 
 
+GAME_PACKAGE = "com.nianticlabs.pokemongo"
+SCREEN_OFF_S = 60  # matches the operator-driven block c in `run`
+
+
+def screen_off_then_foreground(serial):
+    """Block c, unattended: screen off for SCREEN_OFF_S, wake, dismiss a swipe lock, bring the game forward."""
+    adb(serial, "shell", "input", "keyevent", "KEYCODE_SLEEP")
+    time.sleep(SCREEN_OFF_S)
+    adb(serial, "shell", "input", "keyevent", "KEYCODE_WAKEUP")
+    time.sleep(2)
+    adb(serial, "shell", "input", "keyevent", "KEYCODE_MENU")  # dismisses a non-secure keyguard
+    adb(serial, "shell", "monkey", "-p", GAME_PACKAGE, "-c", "android.intent.category.LAUNCHER", "1")
+    time.sleep(TOGGLE_SETTLE_S)
+
+
 def take_screenshot(serial):
     return subprocess.run(["adb", "-s", serial, "exec-out", "screencap", "-p"], capture_output=True, check=True).stdout
 
@@ -341,6 +357,8 @@ def cmd_auto(args):
         print(f"[{args.block} {cycle}/{args.cycles}]", flush=True)
         acl_dropped, method = disconnect_companion(args.serial, args.mac_suffix)
         say(f"disconnect via {method}: companion link dropped={acl_dropped}")
+        if args.block == "c":
+            screen_off_then_foreground(args.serial)
         time.sleep(TOGGLE_SETTLE_S)
         before = take_screenshot(args.serial)
         before_class = classify_screenshot(before)
@@ -436,9 +454,11 @@ def cmd_corpus(args):
 def cmd_summary(_args):
     if not ROWS.exists():
         sys.exit("no results yet")
-    counts = {}
+    counts, failed = {}, []
     for line in ROWS.read_text().splitlines():
         row = json.loads(line)
+        if not row["pass"]:
+            failed.append(f"{row['device']} {row['block']} cycle {row['cycle']}: outcome={row.get('outcome')}")
         key = (row["device"], row["block"])
         passed, total = counts.get(key, (0, 0))
         counts[key] = (passed + bool(row["pass"]), total + 1)
@@ -446,6 +466,9 @@ def cmd_summary(_args):
     print("|---|---|---|")
     for (device, block), (passed, total) in sorted(counts.items()):
         print(f"| {device} | {block} | {passed} / {total} |")
+    if failed:
+        print("\nFailed cycles:")
+        print("\n".join(f"- {f}" for f in failed))
 
 
 def list_devices():
@@ -531,7 +554,7 @@ def main():
     au.add_argument("--serial")
     au.add_argument("--mac-suffix")
     au.add_argument("--device-slug")
-    au.add_argument("--block", default="a", choices=list("abde"))
+    au.add_argument("--block", default="a", choices=list("abcde"))
     au.add_argument("--cycles", type=int, default=100)
     au.set_defaults(fn=cmd_auto)
 

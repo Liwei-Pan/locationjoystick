@@ -129,10 +129,21 @@ The raw rows are in `scripts/reconnect-matrix/cycles.jsonl` (not committed). Fai
 
 ### Automated cycles
 
-`scripts/reconnect_matrix.py auto` runs disconnect and reconnect cycles without an operator at each cycle, for blocks a, b, d and e. Block c (screen off, then bring the game forward) still needs `run`.
+`scripts/reconnect_matrix.py auto` runs disconnect and reconnect cycles without an operator at each cycle, for blocks a to e. Block c drives the screen with adb keyevents (sleep, 60 s, wake, dismiss a swipe lock screen, launch the game), so no operator is needed.
 
 - Each cycle cycles the phone's Bluetooth adapter off and on to drop the companion link, then waits for the app's check.
 - Connect and disconnect each take at least 3 s to load in the UI. The script waits `TOGGLE_SETTLE_S` (5 s) after every toggle before it takes a screenshot.
 - Every cycle saves a before and an after screenshot to `scripts/reconnect-matrix/shots/`, named with the host-side class: `<device>_<block>_<cycle>_<before|after>_<ON|OFF|NONE>.png`. The class comes from a host port of `ReconnectControlDetector`. Review the screenshots and their names by hand; the script's pass rule is a convenience, not the verdict.
 - A cycle passes only when the adapter toggle worked, the before screenshot reads OFF, the app reports RECONNECTED, the link is back, and the after screenshot reads ON.
 - **Faithfulness of the adapter toggle is not yet measured.** A pilot run (10 cycles on the test device) decides whether the adapter cycle is a faithful stand-in for a physical disconnect. If fewer than 10 of 10 cycles report `toggle_ok`, record that finding here and do not run the full matrix.
+
+### Running the full proof
+
+`make reconnect-matrix` runs the whole unattended proof on one device and takes hours. Variables: `SERIAL` (default `0A061FDD4000JF`), `MAC_SUFFIX` (`D3:24`), `DEVICE_SLUG` (`pixel5`).
+
+1. Installs the **release** build (`installRelease`, 60 s loop, the shipped interval) signed with the local debug keystore, so it replaces an existing debug install without an uninstall. A debug build checks every 10 s and does not prove release cadence; the target aborts if the installed build is debuggable.
+2. 12 already-on checks (companion connected, zero taps).
+3. `auto` blocks a, b, c, d, e of 20 cycles each (5 x 20 per device).
+4. `summary`: pass counts per block, then every failed cycle.
+
+A failing cycle never stops the run; it is a `"pass": false` row in `scripts/reconnect-matrix/cycles.jsonl`. Before starting: the game open, the companion connected, Settings > Menus > Reconnect accessory enabled and both disclosures accepted.
