@@ -301,6 +301,26 @@ def heading_from_moves(d1, f1, d2, f2, min_move_m=3.0, min_flow_px=5.0, max_skew
     return {"theta_deg": t, "s": float(np.hypot(*a[0])), "sy": float(np.hypot(*a[1])), "skew_deg": skew}
 
 
+def commanded_target(lat, lon, bearing_deg, dist_m):
+    """(lat, lon) dist_m metres from the start along a compass bearing (flat earth, 111320 m/deg)."""
+    b = math.radians(bearing_deg)
+    return (lat + dist_m * math.cos(b) / 111320,
+            lon + dist_m * math.sin(b) / (111320 * math.cos(math.radians(lat))))
+
+
+def along_track_move(p0, p1, bearing_deg, lat0):
+    """(east, north) metres of the move p0 -> p1 (lat, lon) projected onto the commanded bearing.
+
+    The direction is the bearing the Control API /walk was given, known by construction; only the
+    length comes from the polled positions, so perpendicular position jitter drops out.
+    """
+    east = (p1[1] - p0[1]) * 111320 * math.cos(math.radians(lat0))
+    north = (p1[0] - p0[0]) * 111320
+    b = math.radians(bearing_deg)
+    along = east * math.sin(b) + north * math.cos(b)
+    return (along * math.sin(b), along * math.cos(b))
+
+
 def motion_g_est(est, cam):
     """Ground->game homography from a heading_from_moves estimate; px/py/a are the fixed camera terms."""
     return ground_to_game({**cam, "s": est["s"], "sy": est["sy"]}, est["theta_deg"])
@@ -316,6 +336,8 @@ def cmd_motion(args):
     import json
     import time
 
+    if args.commanded:
+        return cmd_motion_commanded(args)
     data = Path(args.data)
     tj = json.loads((data / "truth.json").read_text())
     cam, lat0 = tj["cam"], tj["ref_pos"][0]
@@ -348,6 +370,127 @@ def cmd_motion(args):
                 rows.append(row)
     (data / "results_motion.json").write_text(json.dumps(rows, indent=1))
     print(f"{len(rows)} rows -> {data / 'results_motion.json'}")
+
+
+def _commanded_legs(data, moving_min=0.3):
+    """{bearing: [{ll, img, moving}]} from walk_C_* dirs. /state speedMs stays 0 during a walk-to, so a
+    frame counts as moving when its neighbours' polled positions imply at least moving_min m/s."""
+    import json
+
+    legs = {}
+    for d in sorted(data.glob("walk_C_*")):
+        meta = json.loads((d / "meta.json").read_text())
+        ll = [((m["pos"][0] + m["pos_after"][0]) / 2, (m["pos"][1] + m["pos_after"][1]) / 2) for m in meta]
+        fr = []
+        for i, m in enumerate(meta):
+            a, b = max(i - 1, 0), min(i + 1, len(meta) - 1)
+            dn = (ll[b][0] - ll[a][0]) * 111320
+            de = (ll[b][1] - ll[a][1]) * 111320 * math.cos(math.radians(ll[0][0]))
+            speed = math.hypot(dn, de) / max(meta[b]["t"] - meta[a]["t"], 1e-6)
+            fr.append({"ll": ll[i], "img": cv2.imread(str(d / f"w{m['i']:02d}.png")), "moving": speed >= moving_min})
+        legs[meta[0]["bearing_cmd"]] = fr
+    return legs
+
+
+def cmd_motion_commanded(args):
+    """Motion-calibrated heading scored with the commanded /walk bearing as each move's direction.
+
+    Legs N (0), E (90) and a held-out NE (45) from walkcap. Move vector = along-track length times the
+    commanded direction. Rows: N x E (kind motion_c_k<K>), N x NE and E x NE (kind motion_c_k<K>_ne), plus
+    held-out offset rows: the ground->screen map fitted on N+E moves predicts the NE flow direction; the
+    row's theta_deg is the angle of observed minus predicted flow (deg). Landing error is against the
+    circular mean heading of the accepted N x E estimates (no independent heading exists).
+    """
+    import json
+    import time
+
+    data = Path(args.data)
+    tj = json.loads((data / "truth.json").read_text())
+    cam = tj["cam"]
+    legs = _commanded_legs(data)
+    lat0 = next(iter(legs.values()))[0]["ll"][0]
+    mv = {}
+    for b, fr in legs.items():
+        for k in args.ks:
+            for i in range(len(fr) - k):
+                if args.moving_filter and not (fr[i]["moving"] and fr[i + k]["moving"]):
+                    continue
+                fx, fy, resp = content_flow(fr[i]["img"], fr[i + k]["img"])
+                if resp < args.min_resp:
+                    continue
+                mv.setdefault((b, k), []).append(
+                    (i, along_track_move(fr[i]["ll"], fr[i + k]["ll"], b, lat0), (fx, fy)))
+    rows, ests = [], []
+
+    def pair_rows(kind, ba, bb, k):
+        for a in mv.get((ba, k), []):
+            for b in mv.get((bb, k), []):
+                t0 = time.perf_counter()
+                est = heading_from_moves(a[1], a[2], b[1], b[2])
+                row = {"pair": f"{ba:.0f}_{a[0]:02d}/{bb:.0f}_{b[0]:02d}", "kind": kind, "method": "two_move",
+                       "score": est["skew_deg"] if est else 0.0, "ms": (time.perf_counter() - t0) * 1000,
+                       "rejected": est is None}
+                if est:
+                    row["theta_deg"] = est["theta_deg"]
+                    row["_est"] = est
+                rows.append(row)
+
+    for k in args.ks:
+        pair_rows(f"motion_c_k{k}", 0.0, 90.0, k)
+        pair_rows(f"motion_c_k{k}_ne", 0.0, 45.0, k)
+        pair_rows(f"motion_c_k{k}_ne", 90.0, 45.0, k)
+    base = [r for r in rows if "_est" in r and not r["kind"].endswith("_ne")]
+    if base:
+        th = [math.radians(r["theta_deg"]) for r in base]
+        theta_ref = math.degrees(math.atan2(sum(map(math.sin, th)), sum(map(math.cos, th))))
+        cam_ref = {**cam, "s": float(np.median([r["_est"]["s"] for r in base])),
+                   "sy": float(np.median([r["_est"]["sy"] for r in base]))}
+        g_true = ground_to_game(cam_ref, theta_ref)
+        print(f"reference heading {theta_ref:.1f} deg from {len(base)} N x E estimates")
+    for r in rows:
+        est = r.pop("_est", None)
+        if est and base:
+            r["landing_error_m"] = tap_landing_error_m(motion_g_est(est, cam), g_true, TAP_PROBES)
+    for k in args.ks:
+        fit = [(m[1], m[2]) for b in (0.0, 90.0) for m in mv.get((b, k), [])]
+        if len(fit) < 2:
+            continue
+        dm = np.array([f[0] for f in fit]).T
+        fm = np.array([f[1] for f in fit]).T
+        a = -fm @ dm.T @ np.linalg.inv(dm @ dm.T)
+        for m in mv.get((45.0, k), []):
+            if np.hypot(*m[1]) < 3.0 or np.hypot(*m[2]) < 5.0:
+                continue
+            pred, obs = -a @ np.array(m[1]), np.array(m[2])
+            off = (math.degrees(math.atan2(obs[1], obs[0]) - math.atan2(pred[1], pred[0])) + 180) % 360 - 180
+            rows.append({"pair": f"45_{m[0]:02d}", "kind": f"motion_c_k{k}_heldout", "method": "offset",
+                         "score": 0.0, "ms": 0.0, "rejected": False, "theta_deg": off})
+    (data / "results_motion.json").write_text(json.dumps(rows, indent=1))
+    print(f"{len(rows)} rows -> {data / 'results_motion.json'}")
+    _annotate_commanded(data, legs, mv, cam, args.ks[0])
+    for kind in sorted({r["kind"] for r in rows}):
+        th = [r["theta_deg"] for r in rows if r["kind"] == kind and "theta_deg" in r]
+        n = sum(r["kind"] == kind for r in rows)
+        if th:
+            print(f"{kind}: n={n} accepted={len(th)} mean={np.mean(th):.1f} sd={np.std(th):.1f} deg")
+
+
+def _annotate_commanded(data, legs, mv, cam, k, every=4):
+    """Write annotated/<pair>.png: end frame of the N move with the estimated screen-north arrow."""
+    out = data / "annotated"
+    out.mkdir(exist_ok=True)
+    px, py = int(cam["px"]), int(cam["py"])
+    for a, b in [(a, b) for a in mv.get((0.0, k), []) for b in mv.get((90.0, k), [])][::every]:
+        est = heading_from_moves(a[1], a[2], b[1], b[2])
+        if not est:
+            continue
+        t = math.radians(est["theta_deg"])
+        v = np.array([-est["s"] * math.sin(t), -est["sy"] * math.cos(t)])
+        v = v / np.linalg.norm(v) * 300
+        img = legs[0.0][a[0] + k]["img"].copy()
+        cv2.arrowedLine(img, (px, py), (int(px + v[0]), int(py + v[1])), (0, 0, 255), 8, tipLength=0.15)
+        cv2.putText(img, f"north {est['theta_deg']:.1f} deg", (40, 120), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 255), 6)
+        cv2.imwrite(str(out / f"n{a[0]:02d}_e{b[0]:02d}_k{k}.png"), img)
 
 
 def cmd_real(args):
@@ -467,6 +610,76 @@ def cmd_capture(args):
         print(f"captured {pair}")
 
 
+def frame_meta(i, t, bearing_cmd, st0, st1):
+    """One walkcap meta row from the /state snapshots read before and after the screencap (no secrets)."""
+    p0, p1 = st0["position"], st1["position"]
+    return {"i": i, "t": t, "bearing_cmd": bearing_cmd, "pos": [p0["lat"], p0["lon"]],
+            "pos_after": [p1["lat"], p1["lon"]], "speed_ms": st0["speedMs"], "speed_ms_after": st1["speedMs"],
+            "state_bearing": st1.get("bearing")}
+
+
+def _api(host, key, method, path, body=None):
+    import json
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"http://{host}/api/v1{path}", method=method,
+        data=None if body is None else json.dumps(body).encode(),
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return json.loads(r.read() or b"{}")
+
+
+def cmd_walkcap(args):
+    """Record straight walk legs commanded through the Control API /walk, one frame every args.every s.
+
+    The bearing sent to /walk is the ground truth of each leg's direction (known by construction).
+    Legs chain from where the previous one ended; /teleport is never called. Credentials come from
+    LJ_CONTROL_API_KEY and LJ_CONTROL_API_HOST (host:port) and are never written anywhere.
+    """
+    import json
+    import os
+    import time
+
+    key, host = os.environ.get("LJ_CONTROL_API_KEY"), os.environ.get("LJ_CONTROL_API_HOST")
+    if not key or not host:
+        raise SystemExit("set LJ_CONTROL_API_KEY and LJ_CONTROL_API_HOST (host:port)")
+    st = _api(host, key, "GET", "/state")
+    if (st["spoofState"] != "RUNNING" or st["walk"]["target"] or st["speedProfileId"] != "walk"
+            or st["mode"] in ("ROUTE_REPLAY", "ROAMING", "FOLLOWER") or not st["position"]):
+        raise SystemExit("preflight: need RUNNING, no walk target, walk profile, not replay/roam/follower")
+    out = Path(args.out)
+    _focus(args.serial, GAME_ACTIVITY)
+    time.sleep(2)
+    try:
+        for b in args.legs:
+            st = _api(host, key, "GET", "/state")
+            lat, lon = commanded_target(st["position"]["lat"], st["position"]["lon"], b, args.dist)
+            leg = out / f"walk_C_{int(b):03d}"
+            leg.mkdir(parents=True, exist_ok=True)
+            _api(host, key, "POST", "/walk", {"lat": lat, "lon": lon, "viaRoads": False})
+            rows, t0, seen = [], time.time(), False
+            while time.time() - t0 < args.timeout:
+                tick = time.time()
+                s0 = _api(host, key, "GET", "/state")
+                _adb_screencap(args.serial, leg / f"w{len(rows):02d}.png")
+                s1 = _api(host, key, "GET", "/state")
+                rows.append(frame_meta(len(rows), tick - t0, b, s0, s1))
+                if len(rows) > 1:  # /state speedMs reads 0 during a walk-to, so derive speed from positions
+                    q, c = rows[-2]["pos"], rows[-1]["pos"]
+                    dn, de = (c[0] - q[0]) * 111320, (c[1] - q[1]) * 111320 * math.cos(math.radians(c[0]))
+                    if math.hypot(dn, de) / max(rows[-1]["t"] - rows[-2]["t"], 1e-6) > 3.0:
+                        raise SystemExit("speed above 3 m/s, aborting")
+                seen = seen or s1["walk"]["target"] is not None
+                if seen and s1["walk"]["target"] is None:
+                    break
+                time.sleep(max(0.0, args.every - (time.time() - tick)))
+            (leg / "meta.json").write_text(json.dumps(rows, indent=1))
+            print(f"leg {b}: {len(rows)} frames")
+    finally:
+        _api(host, key, "POST", "/walk/stop")
+
+
 def _angle_scale(m):
     """Rotation (deg) and scale of a 2x3 similarity matrix in cv2.getRotationMatrix2D convention."""
     return -math.degrees(math.atan2(m[1, 0], m[0, 0])), math.hypot(m[0, 0], m[1, 0])
@@ -572,7 +785,19 @@ def main(argv=None):
     mo = sub.add_parser("motion")
     mo.add_argument("data")
     mo.add_argument("--ks", type=int, nargs="+", default=[4, 2], help="frame gap per move")
+    mo.add_argument("--commanded", action="store_true", help="score walk_C_* legs from walkcap")
+    mo.add_argument("--min-resp", type=float, default=0.0, help="with --commanded: drop flows below this response")
+    mo.add_argument("--no-moving-filter", dest="moving_filter", action="store_false",
+                    help="with --commanded: keep frames recorded at speed < 0.5 m/s")
     mo.set_defaults(func=cmd_motion)
+    wc = sub.add_parser("walkcap")
+    wc.add_argument("out")
+    wc.add_argument("--serial", default="0A061FDD4000JF")
+    wc.add_argument("--legs", type=float, nargs="+", default=[0.0, 90.0, 45.0])
+    wc.add_argument("--dist", type=float, default=40.0)
+    wc.add_argument("--every", type=float, default=3.0)
+    wc.add_argument("--timeout", type=float, default=90.0)
+    wc.set_defaults(func=cmd_walkcap)
     rep = sub.add_parser("report")
     rep.add_argument("results")
     rep.set_defaults(func=cmd_report)

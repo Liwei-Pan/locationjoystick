@@ -222,7 +222,7 @@ reliable. Ground truth instead comes from motion: the mock walked about 25 m nor
 perspective term) was fitted so that the ground flow between frames matches the walked distance. This truth does not
 use the registration images, but it is noisy: fitting the north walk and the east walk alone gave headings of -53 and
 -38 degrees (joint fit -46.7, 8 px/m across at the player, 3.2 px/m forward), so treat truth as good to about 8
-degrees and 15% scale. The Pyramid pools (blue triangles left of the player in the game) agree with -47 and not with
+degrees and 15% scale (superseded by "Re-measurement against the commanded heading" below). The Pyramid pools (blue triangles left of the player in the game) agree with -47 and not with
 the heading the best-scoring matches picked.
 
 Landing error is the largest gap in metres between where a tap would land under the estimate and under the truth,
@@ -290,8 +290,45 @@ Verdict: not viable at the gate. Accepted estimates are tight (k=4 heading media
 the joint-fit truth of -46.7) but sit about 7 degrees off, and even with the true scales the heading-only landing
 error is p50/p90 37.5 / 50.0 m on the far probes, because a degree of heading is about 6 m at the top of the
 frame. Half the pairs are rejected, mostly stationary lag frames at the start of a walk. Caveat: truth comes from
-these same walks (a joint fit good to about 8 degrees), so neither the offset nor a pass would be independent
-proof. The compass-icon detector stays; nothing in the app changed.
+these same walks (a joint fit good to about 8 degrees), so this table alone is not independent proof; see
+"Re-measurement against the commanded heading" for the follow-up. The compass-icon detector stays; nothing in the
+app changed.
+
+### Re-measurement against the commanded heading
+
+The truth above came from polled positions, which carry position jitter. Here each move's direction is the exact
+bearing sent to the Control API `/walk` (known by construction), and only its length comes from the polled
+positions (projected onto that bearing, `along_track_move`). Recorded with `registration_bench.py walkcap`
+(three 40 m straight legs at walking speed, no teleport: north, east and a held-out north-east, one frame every
+3 s, about 25 frames per leg) and scored with `motion --commanded`. Key and host come from the environment and are
+never written to disk.
+
+The game camera was at a different orientation than the first dataset (estimated heading -0.9 degrees against
+-46.7), so the 7 degree offset cannot be compared frame for frame. `/state` reported `speedMs` 0 and `bearing`
+null during the walk-to, so the commanded-bearing check and the moving filter use positions instead; every frame
+counted as moving, so the filter changes nothing here.
+
+| kind (about 6.5 m / 3.3 m moves) | n pairs | reject % | heading mean / sd (deg) | landing err p50 / p90 (m) |
+|---|---|---|---|---|
+| north x east, k=4 | 441 | 68 | -0.9 / 3.0 | 99.6 / 185.0 |
+| north x east, k=4, flow response at least 0.1 | 51 | 25 | -0.9 / 2.7 | 56.4 / 130.8 |
+| north x east, k=2 | 529 | 97 | -0.8 / 2.7 | 35.4 / 110.3 |
+| north x north-east, k=4 | 882 | 95 | 2.4 / 11.7 | 148.0 / 561.9 |
+| held-out north-east offset, k=4, response at least 0.1 (estimate minus prediction) | 4 | n/a | -6.4 / 3.8 | n/a |
+| held-out north-east offset, k=2, response at least 0.1 | 9 | n/a | -10.8 / 2.5 | n/a |
+
+Landing error is against the circular mean of the accepted north x east headings (and their median scales), so it
+measures scatter, not absolute error. The held-out offset fits the ground-to-screen map on the north and east moves
+only, then compares the predicted and observed flow direction of the north-east leg; without the response filter
+it is noise (sd 35 to 47 degrees).
+
+Verdict: still fails the gate (reject at most 20%, p90 at most 25 m). The accepted north x east headings are tight
+(sd about 3 degrees), so the 8 degree truth noise was largely position jitter, but the held-out leg still shows a
+6 to 11 degree offset (small sample), so the 7 degree offset was not only truth noise. The dominant problem is
+the flow itself: north-going moves often show about 0 px of shift for 6 m of commanded movement (the game redraws
+position in steps), while east moves are consistent (about 13 px/m). Only one camera orientation was recorded; the
+any-orientation property is unproven (needs the user to rotate the game camera). Annotated end frames with the
+estimated screen-north arrow are written to `annotated/` for checking by eye. Nothing in the app changed.
 
 ## Warning Screen
 

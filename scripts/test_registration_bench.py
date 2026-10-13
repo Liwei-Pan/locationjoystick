@@ -159,6 +159,50 @@ def test_content_flow_recovers_known_shift():
     assert abs(fx + 12) < 0.5 and abs(fy - 7) < 0.5 and resp > 0.3, (fx, fy, resp)
 
 
+def test_commanded_target_and_along_track_move_drop_perpendicular_jitter():
+    lat0, lon0 = 48.8615, 2.3365
+    tgt = rb.commanded_target(lat0, lon0, 45.0, 40.0)
+    e, n = rb.along_track_move((lat0, lon0), tgt, 45.0, lat0)
+    assert abs(e - 40 * math.sin(math.radians(45))) < 0.1 and abs(n - 40 * math.cos(math.radians(45))) < 0.1
+    # 2 m perpendicular (south-east) offset on the end point is dropped.
+    off = (tgt[0] - 2 * math.cos(math.radians(45)) / 111320,
+           tgt[1] + 2 * math.sin(math.radians(45)) / (111320 * math.cos(math.radians(lat0))))
+    e2, n2 = rb.along_track_move((lat0, lon0), off, 45.0, lat0)
+    assert abs(e2 - e) < 0.1 and abs(n2 - n) < 0.1, (e2, n2)
+
+
+def test_commanded_move_direction_beats_jittered_positions_for_heading():
+    s, sy, theta, lat0 = 7.0, 3.0, 33.0, 48.8615
+    rng = np.random.default_rng(7)
+    p0 = (lat0, 2.3365)
+    errs_cmd, errs_raw = [], []
+    for _ in range(40):
+        pts = []
+        for b in (0.0, 90.0):
+            p1 = rb.commanded_target(*p0, b, 8.0)
+            perp = rng.normal(0, 2.0)  # polled position off the track, perpendicular only
+            jit = (-perp * math.sin(math.radians(b)), perp * math.cos(math.radians(b)))  # (north, east)
+            pj = (p1[0] + jit[0] / 111320, p1[1] + jit[1] / (111320 * math.cos(math.radians(lat0))))
+            exact = ((8.0 * math.sin(math.radians(b))), 8.0 * math.cos(math.radians(b)))
+            f = _flows(s, sy, theta, [exact])[0]
+            pts.append((b, pj, f))
+        raw = [((pj[1] - p0[1]) * 111320 * math.cos(math.radians(lat0)), (pj[0] - p0[0]) * 111320)
+               for _, pj, _ in pts]
+        cmd = [rb.along_track_move(p0, pj, b, lat0) for b, pj, _ in pts]
+        e_cmd = rb.heading_from_moves(cmd[0], pts[0][2], cmd[1], pts[1][2], max_skew_deg=90)
+        e_raw = rb.heading_from_moves(raw[0], pts[0][2], raw[1], pts[1][2], max_skew_deg=90)
+        errs_cmd.append(abs(e_cmd["theta_deg"] - theta))
+        errs_raw.append(abs(e_raw["theta_deg"] - theta) if e_raw else 90.0)
+    assert max(errs_cmd) < 0.1, errs_cmd
+    assert np.mean(errs_cmd) < np.mean(errs_raw), (np.mean(errs_cmd), np.mean(errs_raw))
+
+
+def test_frame_meta_has_only_state_fields():
+    st = {"position": {"lat": 1.0, "lon": 2.0}, "speedMs": 1.4, "bearing": 45.0, "key": "SECRET-SENTINEL"}
+    row = rb.frame_meta(3, 9.0, 45.0, st, st)
+    assert "SECRET-SENTINEL" not in repr(row) and row["pos"] == [1.0, 2.0] and row["state_bearing"] == 45.0
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:
