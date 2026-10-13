@@ -9,7 +9,9 @@ scripts/reconnect-matrix/, gitignored):
     already-on [--serial S] [--mac-suffix D3:24] [--device-slug pixel7] --checks 12
         Companion connected; every check must read ON, tap nothing and return NOT_OFF.
     auto [--serial S] [--mac-suffix D3:24] [--device-slug pixel7] --block a|b|d|e --cycles 100
-        No operator per cycle: cycles the phone's Bluetooth adapter to drop the companion link,
+        No operator per cycle: taps the game's connect control while it reads ON to drop the companion
+        link (a software disconnect; it does not cover the accessory powering off or going out of range),
+        falling back to cycling the phone's Bluetooth adapter,
         waits for the app's check, and saves a before and after screenshot per cycle named with
         its host-side class (ON/OFF/NONE) for manual review in scripts/reconnect-matrix/shots/.
         Block c needs an operator (screen off, foreground the game), so it stays in `run`.
@@ -48,7 +50,6 @@ LOOP_INTERVAL_S = 60  # AppConstants.ReconnectTapConstants.CHECK_INTERVAL_MS (re
 CYCLE_TIMEOUT_S = 150  # one loop interval + up to 3 taps with settles
 
 ACL_RE = re.compile(r"aclStateChangeCallback: State:(Connected|Disconnected)")
-COUNT_RE = re.compile(r"Connected devices:\s*(\d+)")
 READ_RE = re.compile(r"Reconnect read: (ON|OFF|NONE)")
 TAP_RE = re.compile(r"Reconnect tap: ")
 CHECK_RE = re.compile(r"Reconnect check: (NOT_OFF|RECONNECTED|FAILED)")
@@ -58,19 +59,25 @@ SHOTS = OUT / "shots"
 
 
 def parse_acl_state(dumpsys_text, mac_suffix):
-    """Last ACL state for the companion (address is masked, so match the visible tail, e.g. 'D3:24]')."""
+    """Companion link state from the masked address's visible tail (e.g. 'D3:24').
+
+    Pixel 7 prints `[XX:..:D3:24] aclStateChangeCallback: State:X` lines, last one wins. Pixel 5
+    (Android 14) prints only a connection-history block, `CONNECTED    xx:..:d3:24` and
+    `DISCONNECTED xx:..:d3:24 reason=0`, newest first, so the first such line wins.
+    """
     state = None
     for line in dumpsys_text.splitlines():
         if f"{mac_suffix}]" in line:
             m = ACL_RE.search(line)
             if m:
                 state = m.group(1)
+    if state is None:
+        m = re.search(
+            rf"\b(CONNECTED|DISCONNECTED)\s+\S*(?i:{re.escape(mac_suffix)})(?![0-9A-Fa-f])", dumpsys_text
+        )
+        if m:
+            state = "Connected" if m.group(1) == "CONNECTED" else "Disconnected"
     return state
-
-
-def parse_connected_count(dumpsys_text):
-    matches = COUNT_RE.findall(dumpsys_text)
-    return int(matches[-1]) if matches else None
 
 
 def classify_logs(lines):
@@ -147,8 +154,8 @@ def _state(u, low, d):
     return "OFF" if rose_top and blue_bottom and dark_dot else None
 
 
-def classify_screenshot(png_bytes):
-    """Return "ON", "OFF" or "NONE" for the companion control in a screenshot (never a tap decision)."""
+def locate_control(png_bytes):
+    """Return ("ON"|"OFF", (x, y)) or ("NONE", None): the control's state and its dot's centre in full-screen pixels."""
     import io
 
     import numpy as np
@@ -156,14 +163,15 @@ def classify_screenshot(png_bytes):
 
     rgb = np.asarray(Image.open(io.BytesIO(png_bytes)).convert("RGB"), dtype=np.int32)
     full_h, width = rgb.shape[:2]
-    region = rgb[: int(full_h * SEARCH_Y_MAX_PCT), int(width * SEARCH_X_MIN_PCT):]
+    x0 = int(width * SEARCH_X_MIN_PCT)
+    region = rgb[: int(full_h * SEARCH_Y_MAX_PCT), x0:]
     flats = _flat_regions(region)
     halves = [
         f for f in flats
         if 0.03 * width <= f[2] - f[0] + 1 <= 0.10 * width
         and 0.2 <= (f[3] - f[1] + 1) / (f[2] - f[0] + 1) <= 0.6
     ]
-    off = False
+    off_centre = None
     for u in halves:
         for low in halves:
             if u is low:
@@ -190,11 +198,18 @@ def classify_screenshot(png_bytes):
                 if abs((f[1] + f[3]) // 2 - split) > 0.2 * w:
                     continue
                 state = _state(u[4], low[4], f[4])
+                centre = (x0 + (f[0] + f[2]) // 2, (f[1] + f[3]) // 2)
                 if state == "ON":
-                    return "ON"
-                off = off or state == "OFF"
+                    return "ON", centre
+                if state == "OFF":
+                    off_centre = centre
                 break
-    return "OFF" if off else "NONE"
+    return ("OFF", off_centre) if off_centre else ("NONE", None)
+
+
+def classify_screenshot(png_bytes):
+    """Return "ON", "OFF" or "NONE" for the companion control in a screenshot (never a tap decision)."""
+    return locate_control(png_bytes)[0]
 
 
 def adb(serial, *args, text=True):
@@ -202,14 +217,13 @@ def adb(serial, *args, text=True):
 
 
 def link_state(serial, mac_suffix):
-    dump = adb(serial, "shell", "dumpsys", "bluetooth_manager")
-    return parse_acl_state(dump, mac_suffix), parse_connected_count(dump)
+    return parse_acl_state(adb(serial, "shell", "dumpsys", "bluetooth_manager"), mac_suffix)
 
 
 def wait_for_link(serial, mac_suffix, want, timeout_s):
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        state, _ = link_state(serial, mac_suffix)
+        state = link_state(serial, mac_suffix)
         if state == want:
             return True
         time.sleep(2)
@@ -295,6 +309,21 @@ def toggle_adapter(serial):
         return False
 
 
+def disconnect_companion(serial, mac_suffix):
+    """Drop the companion link as a user would: tap the connect control while a fresh read says ON.
+
+    Falls back to cycling the phone's Bluetooth adapter when the control does not read ON or the
+    tap does not drop the link. Returns (link dropped, method).
+    """
+    state, centre = locate_control(take_screenshot(serial))
+    if state == "ON":
+        adb(serial, "shell", "input", "tap", str(centre[0]), str(centre[1]))
+        if wait_for_link(serial, mac_suffix, "Disconnected", 60):
+            return True, "tap"
+    toggle_ok = toggle_adapter(serial)
+    return toggle_ok and wait_for_link(serial, mac_suffix, "Disconnected", 60), "adapter"
+
+
 def take_screenshot(serial):
     return subprocess.run(["adb", "-s", serial, "exec-out", "screencap", "-p"], capture_output=True, check=True).stdout
 
@@ -310,15 +339,13 @@ def cmd_auto(args):
     print(f"auto: {args.device_slug} block {args.block}, {args.cycles} cycles, companion ...{args.mac_suffix}", flush=True)
     for cycle in range(1, args.cycles + 1):
         print(f"[{args.block} {cycle}/{args.cycles}]", flush=True)
-        say("cycling the Bluetooth adapter")
-        toggle_ok = toggle_adapter(args.serial)
-        acl_dropped = wait_for_link(args.serial, args.mac_suffix, "Disconnected", 60)
-        say(f"adapter toggle ok={toggle_ok}, companion link dropped={acl_dropped}")
+        acl_dropped, method = disconnect_companion(args.serial, args.mac_suffix)
+        say(f"disconnect via {method}: companion link dropped={acl_dropped}")
         time.sleep(TOGGLE_SETTLE_S)
         before = take_screenshot(args.serial)
         before_class = classify_screenshot(before)
         before_shot = save_shot(before, args.device_slug, args.block, cycle, "before", before_class)
-        toggle_ok = toggle_ok and before_class == "OFF"
+        toggle_ok = acl_dropped and before_class == "OFF"
 
         # Open the log only now, so lines from before the toggle cannot count as this cycle's result.
         stream = open_log_stream(args.serial)
@@ -340,13 +367,13 @@ def cmd_auto(args):
             "device": args.device_slug, "block": args.block, "cycle": cycle,
             "outcome": info["outcome"], "taps": info["taps"], "reads": info["reads"],
             "seconds": seconds, "connected": connected, "acl_dropped": acl_dropped,
-            "toggle_ok": toggle_ok, "before_class": before_class, "before_shot": before_shot,
+            "toggle_ok": toggle_ok, "disconnect": method, "before_class": before_class, "before_shot": before_shot,
             "after_class": after_class, "after_shot": after_shot,
             "pass": toggle_ok and cycle_passes(info["outcome"], connected) and after_class == "ON",
             "at": datetime.now(timezone.utc).isoformat(),
         }
         append_row(row)
-        print(f"  -> outcome={row['outcome']} toggle_ok={toggle_ok} before={before_class} "
+        print(f"  -> outcome={row['outcome']} disconnect={method} before={before_class} "
               f"after={after_class} connected={connected} pass={row['pass']}")
 
 
@@ -378,7 +405,7 @@ def cmd_run(args):
 
 
 def cmd_already_on(args):
-    state, _ = link_state(args.serial, args.mac_suffix)
+    state = link_state(args.serial, args.mac_suffix)
     if state != "Connected":
         sys.exit(f"companion is not Connected (ACL state: {state}); connect it first")
     lines = watch_app_log(args.serial, checks_wanted=args.checks, timeout_s=args.checks * LOOP_INTERVAL_S + 120)

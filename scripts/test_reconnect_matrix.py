@@ -24,11 +24,6 @@ def test_parse_acl_state_returns_last_state_for_suffix():
     assert rm.parse_acl_state(DUMP, "00:00") is None
 
 
-def test_parse_connected_count():
-    assert rm.parse_connected_count(DUMP) == 1
-    assert rm.parse_connected_count("no devices here") is None
-
-
 def test_classify_logs_reconnected_run():
     lines = [
         "I CompassAccessibilitySvc: Reconnect read: OFF",
@@ -106,6 +101,36 @@ def test_normalize_name_matches_companion():
     for n in ("Pokémon GO Plus", "POKEMON GO PLUS +", "pokemon go plus+", "Pokémon GO  Plus+"):
         assert rm.normalize_name(n).startswith(rm.COMPANION_NAME), n
     assert not rm.normalize_name("Bose QC Ultra Earbuds").startswith(rm.COMPANION_NAME)
+
+
+
+
+# Real Pixel 5 (Android 14) `dumpsys bluetooth_manager` connection-state history, newest first. The
+# address is masked and lower-cased, and the line has no `[...]` and no `aclStateChangeCallback`.
+PIXEL5_HISTORY = """\
+  10-13 15:25:35.623 CONNECTED    xx:xx:xx:xx:d3:24
+  10-13 15:25:30.560 CONNECTED    xx:xx:xx:xx:d3:24
+  10-13 15:23:11.241 DISCONNECTED xx:xx:xx:xx:d3:24 reason=0
+  10-13 15:07:54.406 CONNECTED    xx:xx:xx:xx:d3:24
+  10-13 14:31:07.514 DISCONNECTED xx:xx:xx:xx:d3:24 reason=0
+"""
+
+
+def test_parse_acl_state_reads_newest_pixel5_history_line():
+    assert rm.parse_acl_state(PIXEL5_HISTORY, "D3:24") == "Connected"
+    assert rm.parse_acl_state(PIXEL5_HISTORY, "AB:CD") is None
+
+
+def test_locate_control_returns_state_and_centre_inside_search_region():
+    from PIL import Image
+
+    for name, want in (("hud_on_night.png", "ON"), ("hud_off_night.png", "OFF")):
+        png = _png(RECONNECT_FIXTURES / name)
+        state, centre = rm.locate_control(png)
+        w, h = Image.open(io.BytesIO(png)).size
+        assert state == want, name
+        assert centre is not None and centre[0] >= 0.55 * w and centre[1] < 0.35 * h, (name, centre)
+    assert rm.locate_control(_png(None, size=(864, 1920))) == ("NONE", None)
 
 
 if __name__ == "__main__":
