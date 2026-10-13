@@ -252,10 +252,7 @@ no method produces a score that tells a correct result from a wrong one. Host la
 
 Learned model: not built; about 20 correlated frames from one location are not a training set.
 
-Lead worth a follow-up task: a motion-calibrated heading. While the app itself moves the position (a walk-to or a
-nudge), two screenshots plus the known moved distance and direction give the on-screen north direction and scale
-directly, with no map matching. The same fit gave 8 degree scatter between single-direction fits here, which is the
-precision to improve before it can be called viable.
+Lead: a motion-calibrated heading, prototyped in "Motion-calibrated heading prototype" below.
 
 Not measured, dropped by user direction: on-screen north indicator, device rotation sensors, gesture-derived heading
 and the manual overlay.
@@ -270,6 +267,31 @@ Earlier synthetic-only table (same-image warps, not game-to-map):
 
 Safety note for repeat runs: teleport jumps of 25 to 120 m in a few seconds made the game show a speed warning.
 Use walking-speed moves (the `walk` Control API route) when recording frames against a live game account.
+
+## Motion-calibrated heading prototype
+
+Chosen bearing source (user decision): the app moves the position a known distance and direction at walking
+speed, and two game screenshots around each move give on-screen north and scale with no map matching. Prototype
+in `scripts/registration_bench.py` (`content_flow`, `heading_from_moves`, `motion_g_est`, subcommand `motion`):
+phase correlation of the ground band gives how far the scene shifted for each move; two roughly perpendicular
+moves give the whole ground-to-screen map, so heading and both pixel-per-metre scales fall out with no camera
+calibration. It returns nothing (caller keeps north-up) when a move is under 3 m, a flow under 5 px, the moves are
+within 30 degrees of parallel, or the two row headings disagree by more than 10 degrees.
+
+Scored on the stored north-walk and east-walk frames, every north move paired with every east move, against the
+gate (reject at most 20% and p90 landing error at most 25 m):
+
+| kind | method | n | reject % | landing err p50 / p90 (m) |
+|---|---|---|---|---|
+| motion_k4 (about 8 m moves) | two_move | 100 | 50 | 70.7 / 86.4 |
+| motion_k2 | two_move | 144 | 57 | 75.1 / 89.6 |
+
+Verdict: not viable at the gate. Accepted estimates are tight (k=4 heading median -39.7 degrees, sd 1.7, against
+the joint-fit truth of -46.7) but sit about 7 degrees off, and even with the true scales the heading-only landing
+error is p50/p90 37.5 / 50.0 m on the far probes, because a degree of heading is about 6 m at the top of the
+frame. Half the pairs are rejected, mostly stationary lag frames at the start of a walk. Caveat: truth comes from
+these same walks (a joint fit good to about 8 degrees), so neither the offset nor a pass would be independent
+proof. The compass-icon detector stays; nothing in the app changed.
 
 ## Warning Screen
 

@@ -125,6 +125,40 @@ def test_register_unpitched_recovers_heading_and_tap_landing_error():
     assert wrong > 20.0, wrong
 
 
+def _flows(s, sy, theta_deg, moves):
+    r = math.radians(theta_deg)
+    a = np.array([[s * math.cos(r), -s * math.sin(r)], [-sy * math.sin(r), -sy * math.cos(r)]])
+    return [tuple(-(a @ np.asarray(d, dtype=np.float64))) for d in moves]
+
+
+def test_heading_from_moves_recovers_known_heading_and_scales():
+    d1, d2 = (0.0, 8.0), (8.0, 0.0)
+    f1, f2 = _flows(7.0, 3.0, 47.0, [d1, d2])
+    est = rb.heading_from_moves(d1, f1, d2, f2)
+    assert abs(est["theta_deg"] - 47.0) < 0.01, est
+    assert abs(est["s"] / 7.0 - 1) < 0.01 and abs(est["sy"] / 3.0 - 1) < 0.01, est
+    cam = {"s": 1.0, "sy": 1.0, "a": 0.0, "px": 540.0, "py": 1400.0}
+    assert np.allclose(rb.motion_g_est(est, cam), rb.ground_to_game({**cam, "s": 7.0, "sy": 3.0}, 47.0), atol=1e-3)
+
+
+def test_heading_from_moves_returns_none_when_low_confidence():
+    d1, d2 = (0.0, 8.0), (8.0, 0.0)
+    f1, f2 = _flows(7.0, 3.0, 47.0, [d1, d2])
+    assert rb.heading_from_moves(d1, f1, (0.0, 4.0), (f1[0] / 2, f1[1] / 2)) is None  # parallel
+    assert rb.heading_from_moves((0.0, 2.0), f1, d2, f2) is None  # move under 3 m
+    assert rb.heading_from_moves(d1, (1.0, 1.0), d2, f2) is None  # flow under 5 px
+    bad = _flows(7.0, 3.0, 47.0, [d1])[0], _flows(7.0, 3.0, 80.0, [d2])[0]  # rows disagree by 33 deg
+    assert rb.heading_from_moves(d1, bad[0], d2, bad[1]) is None
+
+
+def test_content_flow_recovers_known_shift():
+    canvas = np.zeros((2340, 1080), np.uint8)
+    canvas[500:1400, :] = cv2.resize(textured_map(seed=6), (1080, 900))
+    shifted = cv2.warpAffine(canvas, np.float32([[1, 0, -12], [0, 1, 7]]), (1080, 2340))
+    fx, fy, resp = rb.content_flow(canvas, shifted)
+    assert abs(fx + 12) < 0.5 and abs(fy - 7) < 0.5 and resp > 0.3, (fx, fy, resp)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:

@@ -4,7 +4,8 @@
 Step 1 of the investigation: pure geometry helpers plus one registration method (log-polar phase
 correlation on the FFT magnitude, rotation and scale in one step). Annotate/run/report subcommands are
 added once a device-captured dataset exists (see docs/features/tap-to-walk.md, "Bearing registration
-investigation").
+investigation"). The `motion` subcommand scores the motion-calibrated heading prototype (content_flow,
+heading_from_moves) on stored walk frames.
 
 Setup (venv is gitignored):
     python3 -m venv scripts/registration-bench/.venv
@@ -265,6 +266,90 @@ def register_unpitched(ref_img, game_img, cam, marker, m_per_px, step=1.0):
     return ground_to_game(cam, deg), float(max(sc))
 
 
+def content_flow(game_a, game_b, y0=500, y1=1400):
+    """Screen shift (fx, fy) in px of game_b's ground content relative to game_a, plus phase-correlation response.
+
+    No map matching: phase correlation of local-contrast features on the ground band (below the HUD,
+    above the player), Hanning-windowed.
+    """
+    fa, fb = (_feat((g if g.ndim == 2 else _to_gray(g))[y0:y1]) for g in (game_a, game_b))
+    win = cv2.createHanningWindow((fa.shape[1], fa.shape[0]), cv2.CV_32F)
+    (fx, fy), resp = cv2.phaseCorrelate(fa, fb, win)
+    return float(fx), float(fy), float(resp)
+
+
+def heading_from_moves(d1, f1, d2, f2, min_move_m=3.0, min_flow_px=5.0, max_skew_deg=10.0):
+    """Heading and scales from two known moves d (east, north metres) and the content flow f (px) each caused.
+
+    With D = [d1 d2] and F = [f1 f2], the ground->screen linear map is A = -F inv(D); its rows are
+    s*(cos t, -sin t) and -sy*(sin t, cos t), so no camera calibration is needed. Returns
+    {theta_deg, s, sy, skew_deg} or None (caller falls back to north-up) when the moves are too short,
+    nearly parallel, the flow too small, or the two rows' headings disagree by more than max_skew_deg.
+    """
+    d1, d2, f1, f2 = (np.asarray(v, dtype=np.float64) for v in (d1, d2, f1, f2))
+    n1, n2 = np.linalg.norm(d1), np.linalg.norm(d2)
+    if min(n1, n2) < min_move_m or min(np.linalg.norm(f1), np.linalg.norm(f2)) < min_flow_px:
+        return None
+    if abs(d1[0] * d2[1] - d1[1] * d2[0]) < 0.5 * n1 * n2:
+        return None
+    a = -np.column_stack([f1, f2]) @ np.linalg.inv(np.column_stack([d1, d2]))
+    t1, t2 = math.atan2(-a[0, 1], a[0, 0]), math.atan2(-a[1, 0], -a[1, 1])
+    skew = abs((math.degrees(t1 - t2) + 180.0) % 360.0 - 180.0)
+    if skew > max_skew_deg:
+        return None
+    t = math.degrees(math.atan2(math.sin(t1) + math.sin(t2), math.cos(t1) + math.cos(t2)))
+    return {"theta_deg": t, "s": float(np.hypot(*a[0])), "sy": float(np.hypot(*a[1])), "skew_deg": skew}
+
+
+def motion_g_est(est, cam):
+    """Ground->game homography from a heading_from_moves estimate; px/py/a are the fixed camera terms."""
+    return ground_to_game({**cam, "s": est["s"], "sy": est["sy"]}, est["theta_deg"])
+
+
+def cmd_motion(args):
+    """Score motion-calibrated heading on the stored walk frames (north walk x east walk pairs).
+
+    Each frame pair (i, i+K) is one move; one north-walk move and one east-walk move give an estimate.
+    Rows feed cmd_report; landing error is against truth.json's joint-fit heading with the same camera
+    terms. Truth comes from these same walks, so a pass is not independent proof.
+    """
+    import json
+    import time
+
+    data = Path(args.data)
+    tj = json.loads((data / "truth.json").read_text())
+    cam, lat0 = tj["cam"], tj["ref_pos"][0]
+    g_true = ground_to_game(cam, tj["theta_deg"])
+    moves = {}
+    for walk in tj["walks"]:
+        meta = json.loads((data / walk / "meta.json").read_text())
+        pos = [(((m["mock"][1] + m["mock_after"][1]) / 2) * 111320 * math.cos(math.radians(lat0)),
+                ((m["mock"][0] + m["mock_after"][0]) / 2) * 111320) for m in meta]
+        imgs = [cv2.imread(str(data / walk / f"w{m['i']:02d}.png")) for m in meta]
+        moves[walk] = {}
+        for k in args.ks:
+            moves[walk][k] = []
+            for i in range(len(meta) - k):
+                d = (pos[i + k][0] - pos[i][0], pos[i + k][1] - pos[i][1])
+                fx, fy, _ = content_flow(imgs[i], imgs[i + k])
+                moves[walk][k].append((i, d, (fx, fy)))
+    rows = []
+    for k in args.ks:
+        for a in moves["walk_L1_n"][k]:
+            for b in moves["walk_L1_e"][k]:
+                t0 = time.perf_counter()
+                est = heading_from_moves(a[1], a[2], b[1], b[2])
+                row = {"pair": f"n{a[0]:02d}/e{b[0]:02d}", "kind": f"motion_k{k}", "method": "two_move",
+                       "score": est["skew_deg"] if est else 0.0, "ms": (time.perf_counter() - t0) * 1000,
+                       "rejected": est is None}
+                if est:
+                    row["landing_error_m"] = tap_landing_error_m(motion_g_est(est, cam), g_true, TAP_PROBES)
+                    row["theta_deg"] = est["theta_deg"]
+                rows.append(row)
+    (data / "results_motion.json").write_text(json.dumps(rows, indent=1))
+    print(f"{len(rows)} rows -> {data / 'results_motion.json'}")
+
+
 def cmd_real(args):
     """Real game-vs-own-map rows scored against walk-derived truth (landing error in metres on the ground).
 
@@ -484,6 +569,10 @@ def main(argv=None):
     rl.add_argument("--every", type=int, default=2, help="use every Nth walk frame")
     rl.add_argument("--rotations", type=float, nargs="+", default=[0.0, 90.0, 180.0, 270.0])
     rl.set_defaults(func=cmd_real)
+    mo = sub.add_parser("motion")
+    mo.add_argument("data")
+    mo.add_argument("--ks", type=int, nargs="+", default=[4, 2], help="frame gap per move")
+    mo.set_defaults(func=cmd_motion)
     rep = sub.add_parser("report")
     rep.add_argument("results")
     rep.set_defaults(func=cmd_report)
