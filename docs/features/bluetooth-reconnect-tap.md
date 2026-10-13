@@ -54,10 +54,10 @@ Implemented changes:
 ## Locate and classify the control
 
 - **Region.** Search the same top-right region the compass uses (`AppConstants.CompassTrackingConstants.SEARCH_X_MIN_PCT` and `SEARCH_Y_MAX_PCT`), reused rather than duplicated. The HUD shifted up in the latest build of the target app, so the region is re-measured on test devices and the measured fractions recorded in the doc. **Pending measurement.**
-- **Locate by shape and color, not by text.** Find the control as a colored blob within icon-size bounds, the same approach as `findBestIconBlob` in the compass service. This is language-independent.
-- **Size.** Bounds are fractions of the screen's short side, so they hold across screen sizes.
-- **Two states.** Classification uses the blob's dominant color (HSV hue, saturation, value ranges): exactly "off" and "on". The measured HSV ranges for each state, per device and per theme (light, dark), brightness (min, max) and night mode, are recorded here. **Pending measurement.**
-- **Third value.** Classification returns "unknown" when the blob is not found or its color is outside both measured ranges. "Unknown" never taps.
+- **Self-calibrating, no fixed colors.** Every run finds the ball by shape and reads its state from colors measured in that same screenshot, so theme, brightness and tint do not matter and there is no per-device calibration. Flat-color regions (neighbors within 4 per channel) are collected; a ball is an upper half and a lower half stacked into a circle (semicircle-sized, centered, nearly touching) with a dot across the split line. This is language-independent.
+- **Size.** Bounds are fractions of the screen width (a half is 3% to 10% of it, the dot 12% to 50% of the half), so they hold across screen sizes.
+- **Two states, by relative channel dominance.** ON: the dot is mostly green and the top half mostly red. OFF: the dot is dark and not green, the top half leans rose (red over green and blue), the bottom half leans blue. If both an ON and an OFF ball are found, ON wins.
+- **Third value.** Classification returns "unknown" when no ball is found or its colors fit neither state (a grayscale ball reads unknown). "Unknown" never taps.
 
 ## Tap policy
 
@@ -89,14 +89,13 @@ Source: two 864x1920 screenshots of the target app on a night map, one per state
 - **Position.** Ball center at about 91.5% of width and 12.5% of height. Diameter about 7.2% of width. It is inside the compass search window (right 45%, top 35%).
 - **ON.** Saturated red upper half, white lower half, pure green center dot (about 0, 252, 7). Signal arcs beside the ball.
 - **OFF.** Dimmed ball: flat rose upper half (about 150, 97, 122), flat light-blue ring and lower half (about 86, 156, 212), dark-blue center. No green dot.
-- **Detector rule.** ON = icon-sized green blob with red above it. OFF = icon-sized light-blue blob with rose pixels inside it. Anything else returns null, and null never taps.
-- **Not yet covered.** Day theme, other brightness levels, other screen sizes, a "connecting" look, and screens without the control (only one non-HUD fixture so far).
+- **Detector rule.** See "Locate and classify the control". The measured colors above are test evidence, not detector inputs. Tests also cover 0.6 brightness, a red/blue tint, bilinear scaling to 1080x2400 and 691x1536, and a grayscale ball (reads null).
+- **Not yet covered.** Day theme and Play-Store screens are unverified on real shots, as is a "connecting" look. Unsupported: screens narrower than about 720 px (a 0.6 downscale of the ON fixture does not read) and lossy or JPEG screenshots (`takeScreenshot` is lossless).
 
 ## Pending measurements
 
 These need the target app's HUD in both states, a companion device, and more than one device or theme. They were not available in the investigation run and are marked pending rather than estimated.
 
-- Control bounding box and OFF/ON colors on more devices, in the day theme, and at other brightness levels.
 - Probe of `MotionEvent` flags, source, device id, tool type, pressure and size for a real finger tap, `adb shell input tap`, and `dispatchGesture` taps, on API 34 and later.
 
 ## Reliability proof
@@ -113,6 +112,8 @@ These need the target app's HUD in both states, a companion device, and more tha
 - A tap fired while the control read ON in two recorded cycles. This breaks the zero-taps-when-on rule.
 - Only one device was used. The task's >= 3 devices requirement was dropped by user decision, so the one-device run cannot close the task on its own.
 - Full matrix: 5 blocks x 20 cycles per device, each cycle needs the companion disconnected and confirmed, so most of it has to run with an operator at the device.
+
+**Why taps failed on the Pixel 7 (diagnosis).** Detection was not the cause. The previous fixed-color detector, run through its host port on all 8 stored 1080x2400 Pixel 7 shots, read OFF for every `before_OFF` and ON for every `*_ON`; the overlay colors match the 864x1920 fixtures. The failed rows all show `taps: 3` with every post-tap read OFF: the control was read correctly and the old runner took one read 4 s after a tap, so a connect that needed 3 s or more still read OFF and the retap toggled the companion away. The two "tap while ON" rows are the same old runner re-tapping before the adapter dropped. Commit 8ee8df9b (poll 5 reads after a tap, retap only if all are off) fixed this; the three rows after it are RECONNECTED with one tap each. No shot from a device where detection returns null exists, so that failure is unreproduced; the detector was made self-calibrating to remove its only supported fragility (exact colors). The service now logs `Reconnect tap result: <true|false>` for each gesture so a refused or cancelled tap is visible.
 
 The raw rows are in `scripts/reconnect-matrix/cycles.jsonl` (not committed). Failures are not tuned in this task. Follow-up: see "Open work".
 

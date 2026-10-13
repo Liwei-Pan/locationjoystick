@@ -5,6 +5,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
+import java.awt.RenderingHints
+import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.math.abs
@@ -43,6 +45,88 @@ class ReconnectControlDetectorTest {
         val c = checkNotNull(detect("reconnect/hud_off_night.png"))
         assertEquals(ReconnectState.OFF, c.state)
         assertNearControl(c)
+    }
+
+    private fun mapped(
+        path: String,
+        f: (Int, Int, Int) -> Triple<Int, Int, Int>,
+    ): Shot {
+        val s = load(path)
+        val px =
+            IntArray(s.pixels.size) {
+                val p = s.pixels[it]
+                val (r, g, b) = f((p shr 16) and 0xFF, (p shr 8) and 0xFF, p and 0xFF)
+                (0xFF shl 24) or (r.coerceIn(0, 255) shl 16) or (g.coerceIn(0, 255) shl 8) or b.coerceIn(0, 255)
+            }
+        return Shot(px, s.width, s.height)
+    }
+
+    private fun Shot.detect() = ReconnectControlDetector.detect(pixels, width, height)
+
+    private fun dim(path: String) = mapped(path) { r, g, b -> Triple(r * 6 / 10, g * 6 / 10, b * 6 / 10) }
+
+    private fun tint(path: String) = mapped(path) { r, g, b -> Triple(r * 9 / 10, g, b * 8 / 10) }
+
+    private fun scaled(
+        path: String,
+        newWidth: Int,
+        newHeight: Int,
+    ): Shot {
+        val s = load(path)
+        val src = BufferedImage(s.width, s.height, BufferedImage.TYPE_INT_ARGB)
+        src.setRGB(0, 0, s.width, s.height, s.pixels, 0, s.width)
+        val dst = BufferedImage(newWidth, newHeight, BufferedImage.TYPE_INT_ARGB)
+        val g = dst.createGraphics()
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+        g.drawImage(src, 0, 0, newWidth, newHeight, null)
+        g.dispose()
+        val px = IntArray(newWidth * newHeight)
+        dst.getRGB(0, 0, newWidth, newHeight, px, 0, newWidth)
+        return Shot(px, newWidth, newHeight)
+    }
+
+    private fun assertRead(
+        c: ReconnectControl?,
+        state: ReconnectState,
+        scale: Float = 1f,
+        tolPx: Float = 6f,
+    ) {
+        val got = checkNotNull(c)
+        assertEquals(state, got.state)
+        assertTrue("x=${got.centerX}", abs(got.centerX - 791 * scale) <= tolPx)
+        assertTrue("y=${got.centerY}", abs(got.centerY - 240 * scale) <= tolPx)
+    }
+
+    @Test
+    fun dimmedOn_stillReadsOn() = assertRead(dim("reconnect/hud_on_night.png").detect(), ReconnectState.ON)
+
+    @Test
+    fun dimmedOff_stillReadsOff() = assertRead(dim("reconnect/hud_off_night.png").detect(), ReconnectState.OFF)
+
+    @Test
+    fun tintedOn_stillReadsOn() = assertRead(tint("reconnect/hud_on_night.png").detect(), ReconnectState.ON)
+
+    @Test
+    fun tintedOff_stillReadsOff() = assertRead(tint("reconnect/hud_off_night.png").detect(), ReconnectState.OFF)
+
+    @Test
+    fun scaledTo1080x2400_readsBothStates() {
+        val k = 1080f / 864f
+        assertRead(scaled("reconnect/hud_on_night.png", 1080, 2400).detect(), ReconnectState.ON, k, 1f * k + 6)
+        assertRead(scaled("reconnect/hud_off_night.png", 1080, 2400).detect(), ReconnectState.OFF, k, 1f * k + 6)
+    }
+
+    @Test
+    fun scaledTo691x1536_readsBothStates() {
+        val k = 691f / 864f
+        assertRead(scaled("reconnect/hud_on_night.png", 691, 1536).detect(), ReconnectState.ON, k, 8f)
+        assertRead(scaled("reconnect/hud_off_night.png", 691, 1536).detect(), ReconnectState.OFF, k, 8f)
+    }
+
+    @Test
+    fun grayscaleBall_returnsNull() {
+        val gray = mapped("reconnect/hud_on_night.png") { r, g, b -> ((r + g + b) / 3).let { Triple(it, it, it) } }
+        assertNull(gray.detect())
     }
 
     @Test

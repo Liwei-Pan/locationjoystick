@@ -306,7 +306,7 @@ class CompassAccessibilityService :
                 },
                 tap = { x, y, durationMs ->
                     Log.d(TAG, "Reconnect tap: $x,$y,$durationMs")
-                    dispatchTap(x, y, durationMs)
+                    dispatchTap(x, y, durationMs).also { Log.d(TAG, "Reconnect tap result: $it") }
                 },
             )
         Log.d(TAG, "Reconnect check: $result")

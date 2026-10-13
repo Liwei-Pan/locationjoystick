@@ -93,47 +93,58 @@ def cycle_passes(outcome, connected):
     return outcome == "RECONNECTED" and connected is True
 
 
-# Port of ReconnectControlDetector.kt (same constants, same rules, ON checked before OFF).
-# Keep in sync with the Kotlin detector; its fixtures are the self-check's fixtures.
+# Port of ReconnectControlDetector.kt (same rules: flat regions, ball by shape, state by relative
+# channel dominance, ON checked before OFF). Keep in sync with the Kotlin detector; its fixtures
+# are the self-check's fixtures.
 SEARCH_X_MIN_PCT = 0.55  # AppConstants.CompassTrackingConstants
 SEARCH_Y_MAX_PCT = 0.35
-COLOR_TOLERANCE = 14
-OFF_BLUE = (86, 156, 212)
-OFF_ROSE = (150, 97, 122)
-MIN_DOT_FRACTION, MAX_DOT_FRACTION = 0.012, 0.045
-MIN_HALF_FRACTION, MAX_HALF_FRACTION = 0.04, 0.10
-MIN_ABOVE_SHARE = 0.1
+FLAT_STEP = 4
+MIN_PIXELS = 12
 
 
-def _blobs(mask):
-    """4-connected components of True pixels as (left, top, right, bottom) boxes."""
+def _flat_regions(region):
+    """4-connected regions of flat pixels as (left, top, right, bottom, (r, g, b) mean)."""
     import numpy as np
 
-    h, w = mask.shape
-    seen = np.zeros((h, w), dtype=bool)
+    h, w = region.shape[:2]
+    flat = np.ones((h, w), dtype=bool)
+    dx = np.abs(np.diff(region, axis=1)).max(-1) > FLAT_STEP
+    flat[:, :-1] &= ~dx
+    flat[:, 1:] &= ~dx
+    dy = np.abs(np.diff(region, axis=0)).max(-1) > FLAT_STEP
+    flat[:-1] &= ~dy
+    flat[1:] &= ~dy
     out = []
-    for y, x in zip(*np.nonzero(mask)):
-        if seen[y, x]:
+    for y, x in zip(*np.nonzero(flat)):
+        if not flat[y, x]:
             continue
-        seen[y, x] = True
+        flat[y, x] = False
         stack = [(int(y), int(x))]
-        l = r = int(x)
-        t = b = int(y)
+        pts = []
         while stack:
             cy, cx = stack.pop()
-            l, r, t, b = min(l, cx), max(r, cx), min(t, cy), max(b, cy)
+            pts.append((cy, cx))
             for ny, nx in ((cy - 1, cx), (cy + 1, cx), (cy, cx - 1), (cy, cx + 1)):
-                if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not seen[ny, nx]:
-                    seen[ny, nx] = True
+                if 0 <= ny < h and 0 <= nx < w and flat[ny, nx]:
+                    flat[ny, nx] = False
                     stack.append((ny, nx))
-        out.append((l, t, r, b))
+        if len(pts) >= MIN_PIXELS:
+            a = np.array(pts)
+            mean = region[a[:, 0], a[:, 1]].mean(axis=0)
+            out.append((int(a[:, 1].min()), int(a[:, 0].min()), int(a[:, 1].max()), int(a[:, 0].max()),
+                        (int(mean[0]), int(mean[1]), int(mean[2]))))
     return out
 
 
-def _fits(blob, screen_width, min_fraction, max_fraction):
-    l, t, r, b = blob
-    w, h = r - l + 1, b - t + 1
-    return w >= screen_width * min_fraction and w <= screen_width * max_fraction and h * 3 >= w and h <= w * 2
+def _state(u, low, d):
+    """ON, OFF or None from the mean colors of the top half, bottom half and dot."""
+    dot_green = d[1] - max(d[0], d[2])
+    if dot_green >= 0.4 * d[1] and u[0] - max(u[1], u[2]) >= 0.4 * u[0]:
+        return "ON"
+    rose_top = u[0] - u[1] >= 0.15 * u[0] and u[0] > u[2]
+    blue_bottom = low[2] - low[0] >= 0.3 * low[2] and low[2] >= low[1]
+    dark_dot = dot_green < 0.1 * d[1] + 5 and sum(d) <= 0.7 * sum(low)
+    return "OFF" if rose_top and blue_bottom and dark_dot else None
 
 
 def classify_screenshot(png_bytes):
@@ -145,33 +156,45 @@ def classify_screenshot(png_bytes):
 
     rgb = np.asarray(Image.open(io.BytesIO(png_bytes)).convert("RGB"), dtype=np.int32)
     full_h, width = rgb.shape[:2]
-    x0 = int(width * SEARCH_X_MIN_PCT)
-    y1 = int(full_h * SEARCH_Y_MAX_PCT)
-    region = rgb[:y1, x0:]
-    r, g, b = region[..., 0], region[..., 1], region[..., 2]
-
-    def near(ref):
-        return np.all(np.abs(region - np.array(ref)) <= COLOR_TOLERANCE, axis=-1)
-
-    red = (r > 200) & (g < 60) & (b < 60)
-    dot = (g > 200) & (r < 80) & (b < 80)
-    for blob in _blobs(dot):
-        l, t, rt, bt = blob
-        if not _fits(blob, width, MIN_DOT_FRACTION, MAX_DOT_FRACTION):
-            continue
-        band = red[max(0, t - 2 * (rt - l + 1)):t, l:rt + 1]
-        if band.size and band.sum() >= band.size * MIN_ABOVE_SHARE:
-            return "ON"
-
-    rose = near(OFF_ROSE)
-    for blob in _blobs(near(OFF_BLUE)):
-        if not _fits(blob, width, MIN_HALF_FRACTION, MAX_HALF_FRACTION):
-            continue
-        l, t, rt, bt = blob
-        box = rose[t:bt + 1, l:rt + 1]
-        if box.sum() * 10 >= box.size:
-            return "OFF"
-    return "NONE"
+    region = rgb[: int(full_h * SEARCH_Y_MAX_PCT), int(width * SEARCH_X_MIN_PCT):]
+    flats = _flat_regions(region)
+    halves = [
+        f for f in flats
+        if 0.03 * width <= f[2] - f[0] + 1 <= 0.10 * width
+        and 0.2 <= (f[3] - f[1] + 1) / (f[2] - f[0] + 1) <= 0.6
+    ]
+    off = False
+    for u in halves:
+        for low in halves:
+            if u is low:
+                continue
+            w = low[2] - low[0] + 1
+            uw = u[2] - u[0] + 1
+            gap = low[1] - u[3]
+            union_w = max(u[2], low[2]) - min(u[0], low[0]) + 1
+            union_h = low[3] - u[1] + 1
+            if not (
+                abs(uw - w) <= 0.2 * w
+                and abs((u[0] + u[2]) // 2 - (low[0] + low[2]) // 2) <= 0.1 * w
+                and 0 <= gap <= 0.15 * w
+                and 0.85 * union_w <= union_h <= 1.15 * union_w
+            ):
+                continue
+            split = (u[3] + low[1]) // 2
+            for f in flats:
+                fw, fh = f[2] - f[0] + 1, f[3] - f[1] + 1
+                if not (0.12 * w <= fw <= 0.5 * w and 0.12 * w <= fh <= 0.5 * w):
+                    continue
+                if abs((f[0] + f[2]) // 2 - (low[0] + low[2]) // 2) > 0.1 * w:
+                    continue
+                if abs((f[1] + f[3]) // 2 - split) > 0.2 * w:
+                    continue
+                state = _state(u[4], low[4], f[4])
+                if state == "ON":
+                    return "ON"
+                off = off or state == "OFF"
+                break
+    return "OFF" if off else "NONE"
 
 
 def adb(serial, *args, text=True):

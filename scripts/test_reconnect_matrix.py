@@ -2,6 +2,7 @@
 """Self-check for reconnect_matrix.py. Run directly: python3 scripts/test_reconnect_matrix.py"""
 
 import importlib.util
+import io
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("reconnect_matrix", Path(__file__).parent / "reconnect_matrix.py")
@@ -85,6 +86,16 @@ RECONNECT_FIXTURES = Path(__file__).resolve().parent.parent / "feature/widget/im
 def test_classify_screenshot_fixtures():
     assert rm.classify_screenshot(_png(RECONNECT_FIXTURES / "hud_on_night.png")) == "ON"
     assert rm.classify_screenshot(_png(RECONNECT_FIXTURES / "hud_off_night.png")) == "OFF"
+
+
+def test_classify_screenshot_dimmed_fixtures():
+    from PIL import Image, ImageEnhance
+
+    for name, want in (("hud_on_night.png", "ON"), ("hud_off_night.png", "OFF")):
+        img = ImageEnhance.Brightness(Image.open(RECONNECT_FIXTURES / name).convert("RGB")).enhance(0.6)
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        assert rm.classify_screenshot(buf.getvalue()) == want
 
 
 def test_classify_screenshot_blank_is_none():
