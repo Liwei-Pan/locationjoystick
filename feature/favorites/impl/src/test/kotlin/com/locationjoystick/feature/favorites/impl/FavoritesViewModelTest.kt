@@ -51,6 +51,7 @@ class FavoritesViewModelTest {
         every { settingsRepository.getRecentSearches() } returns flowOf(emptyList())
         every { settingsRepository.getHideTeleportFeatures() } returns flowOf(false)
         every { settingsRepository.getHomeFavoriteId() } returns homeFlow
+        every { settingsRepository.getFavoritesManualOrder() } returns flowOf(emptyList())
         viewModel = FavoritesViewModel(favoriteRepository, locationRepository, settingsRepository, teleportUseCase, mapController)
     }
 
