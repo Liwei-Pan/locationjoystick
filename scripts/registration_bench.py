@@ -180,6 +180,151 @@ def register_orb_similarity(ref_gray, game_gray):
     return m, float(inliers.sum()) / len(good)
 
 
+def ground_to_game(cam, theta_deg):
+    """3x3 homography from ground metres (east, north, relative to the player) to game pixels.
+
+    cam holds the fixed pitched-camera terms {s, sy, a, px, py} (px per metre across, px per metre up,
+    perspective term, player pixel); theta_deg is the map heading: how far north is rotated in the frame.
+    """
+    t = math.radians(theta_deg)
+    rot = np.array([[math.cos(t), -math.sin(t), 0], [math.sin(t), math.cos(t), 0], [0, 0, 1]])
+    cam_h = np.array([[cam["s"], 0, cam["px"]], [0, -cam["sy"], cam["py"]], [0, -cam["a"], 1]])
+    return cam_h @ rot
+
+
+def ref_to_ground(marker, m_per_px):
+    """3x3 homography from our map pixels (north up) to ground metres east/north of the marker."""
+    return np.array([[m_per_px, 0, -m_per_px * marker[0]], [0, -m_per_px, m_per_px * marker[1]], [0, 0, 1]])
+
+
+def tap_landing_error_m(g_est, g_true, probes):
+    """Max distance (m) between where two ground->game homographies put the same tapped game pixels."""
+    pts = np.asarray(probes, dtype=np.float64)
+    if abs(np.linalg.det(g_est)) < 1e-12:
+        return float("inf")
+    est = _apply(np.linalg.inv(g_est), pts)
+    tru = _apply(np.linalg.inv(g_true), pts)
+    return float(np.max(np.linalg.norm(est - tru, axis=1)))
+
+
+# Game pixels a user might tap: a 3x3 grid over the ground band (not the HUD, not the player's feet).
+TAP_PROBES = [(x, y) for x in (150, 540, 930) for y in (500, 900, 1300)]
+
+
+def _feat(img):
+    """Local-contrast luminance (gray input) or park-greenness (BGR input), blurred for coarse alignment."""
+    if img.ndim == 3:
+        b, g, r = (img[..., i].astype(np.float32) for i in range(3))
+        return cv2.GaussianBlur(g - np.maximum(r, b), (0, 0), 4)
+    g = img.astype(np.float32)
+    d = g - cv2.GaussianBlur(g, (0, 0), 6)
+    return cv2.GaussianBlur(d / (np.sqrt(cv2.GaussianBlur(d * d, (0, 0), 10)) + 4), (0, 0), 1.5)
+
+
+def rectify_game(game_img, cam, marker, m_per_px, size):
+    """Undo the camera pitch: top-down view of the game ground at our map's scale, anchored at marker.
+
+    size is (w, h) of our map image. Returns (image, validity mask). The image is still in the game's own
+    heading, so it equals our north-up map rotated by the unknown heading about the marker.
+    """
+    w, h = size
+    cam0 = ground_to_game(cam, 0.0) @ ref_to_ground(marker, m_per_px)
+    img = cv2.warpPerspective(game_img, cam0, (w, h), flags=cv2.WARP_INVERSE_MAP | cv2.INTER_LINEAR)
+    band = np.zeros(game_img.shape[:2], dtype=np.uint8)
+    band[300:1500] = 255
+    valid = cv2.warpPerspective(band, cam0, (w, h), flags=cv2.WARP_INVERSE_MAP | cv2.INTER_NEAREST)
+    return img, valid
+
+
+def register_unpitched(ref_img, game_img, cam, marker, m_per_px, step=1.0):
+    """Heading search on the pitch-rectified game view. Returns (ground->game 3x3, score).
+
+    The camera terms cam are calibrated once per device (the game camera is fixed); only the heading is
+    unknown, and the player stands on the map marker, so there is no translation to search. The score is
+    the normalised cross-correlation of local-contrast features at the best heading.
+    """
+    h, w = ref_img.shape[:2]
+    rect, valid = rectify_game(game_img, cam, marker, m_per_px, (w, h))
+    fr, fm = _feat(ref_img), valid.astype(np.float32) / 255.0
+    ft = _feat(rect)
+    yy, xx = np.mgrid[0:h, 0:w]
+    disc = ((xx - marker[0]) ** 2 + (yy - marker[1]) ** 2 < (300.0) ** 2).astype(np.float32)
+
+    def score(deg):
+        m = cv2.getRotationMatrix2D(tuple(marker), deg, 1.0)
+        rr = cv2.warpAffine(fr, m, (w, h))
+        mm = fm * disc
+        return _ncc(rr * mm, ft * mm)
+
+    cands = np.arange(-180.0, 180.0, 4.0)
+    coarse = [score(c) for c in cands]
+    best = float(cands[int(np.argmax(coarse))])
+    fine = np.arange(best - 4.0, best + 4.0 + step, step)
+    sc = [score(c) for c in fine]
+    deg = float(fine[int(np.argmax(sc))])
+    return ground_to_game(cam, deg), float(max(sc))
+
+
+def cmd_real(args):
+    """Real game-vs-own-map rows scored against walk-derived truth (landing error in metres on the ground).
+
+    truth.json in the data dir: {cam, theta_deg, ref, ref_pos, marker, mpp, walks}. The truth heading comes
+    from game frames recorded while the mock walked a known path (not from the images under test). Each
+    walk frame is registered against our map shifted by the walked offset, and the map is also rotated by
+    0/90/180/270 degrees about the marker (a map rendered at another heading; truth turns with it).
+    """
+    import json
+    import time
+
+    data = Path(args.data)
+    tj = json.loads((data / "truth.json").read_text())
+    cam, mpp, marker0 = tj["cam"], tj["mpp"], tj["marker"]
+    ref_bgr = cv2.imread(str(data / tj["ref"]))
+    lat0, lon0 = tj["ref_pos"]
+    h, w = ref_bgr.shape[:2]
+    rows = []
+    for walk in tj["walks"]:
+        meta = json.loads((data / walk / "meta.json").read_text())
+        for fm in meta[:: args.every]:
+            la = (fm["mock"][0] + fm["mock_after"][0]) / 2
+            lo = (fm["mock"][1] + fm["mock_after"][1]) / 2
+            east = (lo - lon0) * 111320 * math.cos(math.radians(lat0))
+            north = (la - lat0) * 111320
+            game = cv2.imread(str(data / walk / f"w{fm['i']:02d}.png"))
+            for psi in args.rotations:
+                rm = cv2.getRotationMatrix2D(tuple(marker0), psi, 1.0)
+                ref = cv2.warpAffine(ref_bgr, rm, (w, h))
+                mk0 = (marker0[0] + east / mpp, marker0[1] - north / mpp)
+                mk = tuple(rm @ np.array([mk0[0], mk0[1], 1.0]))
+                g_true = ground_to_game(cam, tj["theta_deg"] - psi)
+                ref_g, game_g = _to_gray(ref), _to_gray(game)
+                m_inv = np.linalg.inv(ref_to_ground(mk, mpp))
+
+                def raw(est):
+                    if est is None:
+                        return None
+                    est = np.vstack([est, [0, 0, 1]]) if np.shape(est) == (2, 3) else np.asarray(est)
+                    return est @ m_inv
+
+                runs = [
+                    ("unpitched_gray", lambda: register_unpitched(ref_g, game_g, cam, mk, mpp)),
+                    ("unpitched_green", lambda: register_unpitched(ref, game, cam, mk, mpp)),
+                ]
+                for name, fn in _methods():
+                    runs.append((name + "_raw", lambda fn=fn: (lambda m, sc, _: (raw(m), sc))(*fn(ref_g, game_g))))
+                for name, fn in runs:
+                    t0 = time.perf_counter()
+                    g_est, score = fn()
+                    ms = (time.perf_counter() - t0) * 1000
+                    row = {"pair": f"{walk}/{fm['i']:02d}", "kind": f"real_rot{int(psi) % 360}", "method": name,
+                           "score": float(score), "ms": ms, "rejected": g_est is None}
+                    if g_est is not None:
+                        row["landing_error_m"] = tap_landing_error_m(g_est, g_true, TAP_PROBES)
+                    rows.append(row)
+                print(f"{walk} {fm['i']:02d} rot {psi}", flush=True)
+    (data / "results_real.json").write_text(json.dumps(rows, indent=1))
+
+
 def _adb_screencap(serial, out_path):
     import subprocess
 
@@ -294,28 +439,26 @@ def cmd_run(args):
 
 
 def cmd_report(args):
-    """Markdown summary per (kind, method): reject count, median score, angle/scale error, latency."""
+    """Markdown summary per (kind, method): reject %, landing error p50/p90 (m), score, latency."""
     import json
     import statistics
 
+    def pct(vals, q):
+        vals = sorted(vals)
+        return vals[min(len(vals) - 1, int(q * len(vals)))]
+
     rows = json.loads(Path(args.results).read_text())
-    print("| kind | method | n | rejected | median score | median angle err (deg) | median scale err (%) | p50 ms | max ms |")
-    print("|---|---|---|---|---|---|---|---|---|")
-    for kind in ("real", "synthetic"):
+    print("| kind | method | n | reject % | landing err p50/p90 (m) | median score | p50 ms | max ms |")
+    print("|---|---|---|---|---|---|---|---|")
+    for kind in sorted({r["kind"] for r in rows}):
         for m in sorted({r["method"] for r in rows if r["kind"] == kind}):
             sub = [r for r in rows if r["kind"] == kind and r["method"] == m]
             ms = sorted(r["ms"] for r in sub)
-            ang = [r["angle_err_deg"] for r in sub if "angle_err_deg" in r]
-            sca = [r["scale_err_pct"] for r in sub if "scale_err_pct" in r]
-            print(f"| {kind} | {m} | {len(sub)} | {sum(r['rejected'] for r in sub)} | "
-                  f"{statistics.median(r['score'] for r in sub):.3f} | "
-                  f"{statistics.median(ang):.2f} | " if ang else
-                  f"| {kind} | {m} | {len(sub)} | {sum(r['rejected'] for r in sub)} | "
-                  f"{statistics.median(r['score'] for r in sub):.3f} | n/a | ", end="")
-            if ang:
-                print(f"{statistics.median(sca):.2f} | {ms[len(ms) // 2]:.0f} | {ms[-1]:.0f} |")
-            else:
-                print(f"n/a | {ms[len(ms) // 2]:.0f} | {ms[-1]:.0f} |")
+            land = [r["landing_error_m"] for r in sub if "landing_error_m" in r]
+            land_s = f"{pct(land, 0.5):.1f} / {pct(land, 0.9):.1f}" if land else "n/a"
+            rej = 100.0 * sum(r["rejected"] for r in sub) / len(sub)
+            print(f"| {kind} | {m} | {len(sub)} | {rej:.0f} | {land_s} | "
+                  f"{statistics.median(r['score'] for r in sub):.3f} | {ms[len(ms) // 2]:.0f} | {ms[-1]:.0f} |")
 
 
 def main(argv=None):
@@ -336,6 +479,11 @@ def main(argv=None):
     r.add_argument("--synth-angle", type=float, default=25.0)
     r.add_argument("--synth-scale", type=float, default=1.2)
     r.set_defaults(func=cmd_run)
+    rl = sub.add_parser("real")
+    rl.add_argument("data")
+    rl.add_argument("--every", type=int, default=2, help="use every Nth walk frame")
+    rl.add_argument("--rotations", type=float, nargs="+", default=[0.0, 90.0, 180.0, 270.0])
+    rl.set_defaults(func=cmd_real)
     rep = sub.add_parser("report")
     rep.add_argument("results")
     rep.set_defaults(func=cmd_report)

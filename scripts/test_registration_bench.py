@@ -111,6 +111,20 @@ def test_truth_from_annotations_recovers_known_homography():
     assert 0.0 < err < 1.0, err
 
 
+def test_register_unpitched_recovers_heading_and_tap_landing_error():
+    cam = {"s": 7.0, "sy": 3.0, "a": -0.0008, "px": 540.0, "py": 1400.0}
+    ref = cv2.GaussianBlur(synthetic_map(seed=3, size=1100), (0, 0), 2)
+    marker, mpp = (550, 550), 0.6
+    true = rb.ground_to_game(cam, 47.0) @ rb.ref_to_ground(marker, mpp)
+    game = cv2.warpPerspective(ref, true, (1080, 2340))
+    est, score = rb.register_unpitched(ref, game, cam, marker, mpp)
+    err = rb.tap_landing_error_m(est, rb.ground_to_game(cam, 47.0), rb.TAP_PROBES)
+    assert err < 1.0, err
+    assert score > 0.3, score
+    wrong = rb.tap_landing_error_m(rb.ground_to_game(cam, 0.0), rb.ground_to_game(cam, 47.0), rb.TAP_PROBES)
+    assert wrong > 20.0, wrong
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:

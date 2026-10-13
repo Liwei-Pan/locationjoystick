@@ -214,36 +214,62 @@ Goal: recover the map's rotation and scale from a screenshot of the game map, wi
 reading the other app's memory. Method: register the game screenshot against this app's own map rendered around
 the same position. Harness: `scripts/registration_bench.py` (run with `scripts/registration-bench/.venv`).
 
-Dataset: 6 pairs on one device (Pixel 5, 1080x2340, 440 dpi). Each pair is a game screenshot and our own map
-screenshot taken over adb, with the same pan applied to both. The pairs are not geometrically matched.
+Dataset and ground truth. One device only (Pixel 5, 1080x2340, 440 dpi; a second display config was not built,
+because changing density restarts the game on a live account). One location (Louvre courtyard, Paris). The game
+view is a fixed pitched 3D camera at a closer zoom than our top-down map, so hand-annotated landmark pairs were not
+reliable. Ground truth instead comes from motion: the mock walked about 25 m north and then east (game frames every
+3 s, positions read from the system), and a pitched-camera model (heading, lateral and forward pixels per metre,
+perspective term) was fitted so that the ground flow between frames matches the walked distance. This truth does not
+use the registration images, but it is noisy: fitting the north walk and the east walk alone gave headings of -53 and
+-38 degrees (joint fit -46.7, 8 px/m across at the player, 3.2 px/m forward), so treat truth as good to about 8
+degrees and 15% scale. The Pyramid pools (blue triangles left of the player in the game) agree with -47 and not with
+the heading the best-scoring matches picked.
 
-Measured on the host (laptop) with the bench `run`/`report` commands:
+Landing error is the largest gap in metres between where a tap would land under the estimate and under the truth,
+over a 3x3 grid of game pixels on the ground band. Rows were scored on 10 walk frames, with our map also rotated
+0/90/180/270 degrees about the marker (rotation is the unknown the method must recover). Host numbers:
+
+| kind | method | n | reject % | landing err p50 / p90 (m) | median score | p50 ms |
+|---|---|---|---|---|---|---|
+| real | logpolar (raw) | 10 | 0 | 760 / 773 | -0.07 | 415 |
+| real | orb_similarity (raw) | 10 | 0 | 398 / inf | 0.23 | 72 |
+| real | orb_homography (raw) | 10 | 0 | 650 / inf | 0.23 | 83 |
+| real | unpitch + heading search, luminance | 10 | 0 | 221 / 610 | 0.06 | 3095 |
+| real | unpitch + heading search, park-green | 10 | 0 | 611 / 612 | -0.12 | 3072 |
+
+("raw" = the method run on the pitched screenshot, as in the earlier synthetic table below. "unpitch" removes the
+camera pitch with the per-device calibrated camera, then searches the heading about the player marker only; the
+function `register_unpitched` recovers a synthetic heading within 1 m at 100 m reach.) Rotated rows are identical
+to the 0 degree rows within the disc effect; the full table is `registration_bench.py real` then `report`.
+
+Method choice: none viable. Rule: lowest p90 landing error with reject rate at most 20% and p90 at most 25 m.
+Nothing is within an order of magnitude; the best p50 is 221 m. Scores do not separate good from bad: the
+best-scoring heading across five frames of both walks sat near +120 degrees, about 170 degrees from the truth, with
+scores of 0.3. Colour-class features (blue, green, mixed) and template matching with free translation did not give a
+consistent heading either. So the landing-error threshold, verification-score threshold and latency budget are n/a:
+no method produces a score that tells a correct result from a wrong one. Host latency of the heading search is about
+3 s unoptimised; on-device latency is not measured (no OpenCV in the Android build).
+
+Learned model: not built; about 20 correlated frames from one location are not a training set.
+
+Lead worth a follow-up task: a motion-calibrated heading. While the app itself moves the position (a walk-to or a
+nudge), two screenshots plus the known moved distance and direction give the on-screen north direction and scale
+directly, with no map matching. The same fit gave 8 degree scatter between single-direction fits here, which is the
+precision to improve before it can be called viable.
+
+Not measured, dropped by user direction: on-screen north indicator, device rotation sensors, gesture-derived heading
+and the manual overlay.
+
+Earlier synthetic-only table (same-image warps, not game-to-map):
 
 | kind | method | n | rejected | median score | median angle err (deg) | median scale err (%) | p50 ms | max ms |
 |---|---|---|---|---|---|---|---|---|
-| real | logpolar | 6 | 0 | -0.113 | n/a | n/a | 541 | 983 |
-| real | orb_similarity | 6 | 0 | 0.732 | n/a | n/a | 90 | 129 |
-| real | orb_homography | 6 | 0 | 0.732 | n/a | n/a | 75 | 101 |
 | synthetic | logpolar | 6 | 0 | 0.081 | 25.00 | 16.70 | 510 | 623 |
 | synthetic | orb_similarity | 6 | 0 | 0.844 | 0.00 | 0.02 | 81 | 151 |
 | synthetic | orb_homography | 6 | 0 | 0.875 | n/a | n/a | 70 | 132 |
 
-- "real" rows: game screenshot against our own map. There is no ground truth, so these show only consistency.
-  The logpolar score is a normalised cross-correlation after warping, and is negative, so it does not align.
-- "synthetic" rows: the same game screenshot against a copy warped by a known 25 degree rotation and 1.2 scale.
-  This measures the algorithm on the same image modality, not game-to-map registration.
-- Latency is host-side only. On-device compute is not measured yet (pending).
-
-Not yet measured, so no threshold is set: landing error on real game-to-map pairs (needs ground truth), the
-verification-score threshold, the reject rate per zoom, rotation and area type, the number of devices and the
-on-device latency budget.
-
-Method choice: none yet. ORB + similarity recovers synthetic rotation to within 0.04 degrees, but the real-pair
-score cannot be checked against truth, so it is not a basis for accepting a result. Logpolar recovers the angle on
-synthetic pairs but not the scale, and fails on real pairs.
-
-Not measured, dropped by user direction: on-screen north indicator, device rotation sensors, gesture-derived heading
-and the manual overlay.
+Safety note for repeat runs: teleport jumps of 25 to 120 m in a few seconds made the game show a speed warning.
+Use walking-speed moves (the `walk` Control API route) when recording frames against a live game account.
 
 ## Warning Screen
 
