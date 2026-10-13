@@ -293,12 +293,102 @@ def heading_from_moves(d1, f1, d2, f2, min_move_m=3.0, min_flow_px=5.0, max_skew
     if abs(d1[0] * d2[1] - d1[1] * d2[0]) < 0.5 * n1 * n2:
         return None
     a = -np.column_stack([f1, f2]) @ np.linalg.inv(np.column_stack([d1, d2]))
+    est = _rows_theta_skew(a)
+    return est if est["skew_deg"] <= max_skew_deg else None
+
+
+def _rows_theta_skew(a):
+    """{theta_deg, s, sy, skew_deg} from a 2x2 ground->screen map: rows are s*(cos t, -sin t), -sy*(sin t, cos t)."""
     t1, t2 = math.atan2(-a[0, 1], a[0, 0]), math.atan2(-a[1, 0], -a[1, 1])
     skew = abs((math.degrees(t1 - t2) + 180.0) % 360.0 - 180.0)
-    if skew > max_skew_deg:
-        return None
     t = math.degrees(math.atan2(math.sin(t1) + math.sin(t2), math.cos(t1) + math.cos(t2)))
     return {"theta_deg": t, "s": float(np.hypot(*a[0])), "sy": float(np.hypot(*a[1])), "skew_deg": skew}
+
+
+def fit_ground_map(moves, min_moves=12, min_move_m=3.0, min_flow_px=5.0, max_skew_deg=10.0):
+    """One least-squares ground->screen 2x2 map from many (d, f) moves (d east/north metres, f content flow px).
+
+    A = -F D^T (D D^T)^-1 over every move, then moves whose residual |f + A d| exceeds max(3 MAD, 1.5 px)
+    are dropped and the map refitted once. Returns {A, theta_deg, s, sy, skew_deg, n_used, n_total, rms_px}
+    or None (too few moves, bearings not spread, or the two rows disagree): never a north-up fallback.
+    """
+    use = [(np.asarray(d, float), np.asarray(f, float)) for d, f in moves
+           if np.linalg.norm(d) >= min_move_m and np.linalg.norm(f) >= min_flow_px]
+
+    def solve(sel):
+        dm, fm = (np.array([m[i] for m in sel]).T for i in (0, 1))
+        sv = np.linalg.svd(dm / math.sqrt(len(sel)), compute_uv=False)
+        if sv[1] < 0.5 * sv[0]:
+            return None
+        return -fm @ dm.T @ np.linalg.inv(dm @ dm.T), dm, fm
+
+    fit = solve(use) if len(use) >= min_moves else None
+    if fit is None:
+        return None
+    a, dm, fm = fit
+    res = np.linalg.norm(fm + a @ dm, axis=0)
+    keep = res <= max(3 * float(np.median(np.abs(res - np.median(res)))), 1.5)
+    use = [m for m, k in zip(use, keep) if k]
+    fit = solve(use) if len(use) >= min_moves else None
+    if fit is None:
+        return None
+    a, dm, fm = fit
+    est = _rows_theta_skew(a)
+    if est["skew_deg"] > max_skew_deg:
+        return None
+    rms = float(np.sqrt(np.mean(np.sum((fm + a @ dm) ** 2, axis=0))))
+    return {**est, "A": a.tolist(), "n_used": len(use), "n_total": len(moves), "rms_px": rms}
+
+
+def tap_to_ground(a, p, anchor):
+    """Ground offset g (east, north metres) the player must move so tapped screen pixel p reaches the anchor.
+
+    A ground point at offset g appears at screen offset A g, so g = inv(A) (p - anchor). No heading needed.
+    """
+    return np.linalg.solve(np.asarray(a, float), np.asarray(p, float) - np.asarray(anchor, float))
+
+
+def patch_offset(before, after, p, anchor, half=100, search=150, scales=(1.0, 1.15, 1.3), sprite=70, sprite_dy=-40):
+    """Where the game drew the content that was under pixel p in `before`, found in `after`.
+
+    Returns ((dx, dy) of the match centre minus anchor in px, normalised cross-correlation). The player
+    sprite (a disc of radius `sprite` centred `sprite_dy` px above the anchor, the feet) is excluded from both frames by a masked NCC,
+    so a match that lands under the sprite still scores on the pixels around it. The (2*half)^2 template
+    is tried at several scales inside +-search px of the anchor; at least half of it must be unmasked.
+    """
+    def gray(img):
+        return ((img if img.ndim == 2 else _to_gray(img)).astype(np.float32) - 128.0) / 128.0  # float32 sums
+
+    b, a = gray(before), gray(after)
+    ax, ay = int(anchor[0]), int(anchor[1])
+    mask = np.ones(b.shape, np.float32)
+    cv2.circle(mask, (ax, ay + sprite_dy), sprite, 0, -1)
+    px, py = int(p[0]), int(p[1])
+    sl = (slice(max(py - half, 0), py + half), slice(max(px - half, 0), px + half))
+    tpl, tm = b[sl], mask[sl]
+    h, w = a.shape
+    corr = lambda x, k: cv2.matchTemplate(x, k, cv2.TM_CCORR)
+    best = ((0.0, 0.0), -1.0)
+    for sc in scales:
+        t = cv2.resize(tpl, None, fx=sc, fy=sc, interpolation=cv2.INTER_LINEAR)
+        mt = cv2.resize(tm, None, fx=sc, fy=sc, interpolation=cv2.INTER_NEAREST)
+        th, tw = t.shape
+        x0, y0 = max(ax - search - tw // 2, 0), max(ay - search - th // 2, 0)
+        x1, y1 = min(ax + search + tw // 2, w), min(ay + search + th // 2, h)
+        win, wm = a[y0:y1, x0:x1], mask[y0:y1, x0:x1]
+        if win.shape[0] < th or win.shape[1] < tw:
+            continue
+        n = corr(wm, mt)
+        sw, sw2, sww = corr(win * wm, mt), corr(win * win * wm, mt), corr(win * wm, t * mt)
+        st, st2 = corr(wm, t * mt), corr(wm, t * t * mt)
+        n = np.maximum(n, 1e-6)
+        num = sww - sw * st / n
+        den = np.sqrt(np.maximum(sw2 - sw * sw / n, 1e-6) * np.maximum(st2 - st * st / n, 1e-6))
+        r = np.where(n >= 0.5 * th * tw, num / den, -1.0)
+        _, mx, _, loc = cv2.minMaxLoc(r)
+        if mx > best[1]:
+            best = ((x0 + loc[0] + tw / 2 - ax, y0 + loc[1] + th / 2 - ay), float(mx))
+    return best
 
 
 def commanded_target(lat, lon, bearing_deg, dist_m):
@@ -630,16 +720,9 @@ def _api(host, key, method, path, body=None):
         return json.loads(r.read() or b"{}")
 
 
-def cmd_walkcap(args):
-    """Record straight walk legs commanded through the Control API /walk, one frame every args.every s.
-
-    The bearing sent to /walk is the ground truth of each leg's direction (known by construction).
-    Legs chain from where the previous one ended; /teleport is never called. Credentials come from
-    LJ_CONTROL_API_KEY and LJ_CONTROL_API_HOST (host:port) and are never written anywhere.
-    """
-    import json
+def _preflight():
+    """(host, key) from LJ_CONTROL_API_HOST / LJ_CONTROL_API_KEY after checking the app is ready for /walk."""
     import os
-    import time
 
     key, host = os.environ.get("LJ_CONTROL_API_KEY"), os.environ.get("LJ_CONTROL_API_HOST")
     if not key or not host:
@@ -648,6 +731,20 @@ def cmd_walkcap(args):
     if (st["spoofState"] != "RUNNING" or st["walk"]["target"] or st["speedProfileId"] != "walk"
             or st["mode"] in ("ROUTE_REPLAY", "ROAMING", "FOLLOWER") or not st["position"]):
         raise SystemExit("preflight: need RUNNING, no walk target, walk profile, not replay/roam/follower")
+    return host, key
+
+
+def cmd_walkcap(args):
+    """Record straight walk legs commanded through the Control API /walk, one frame every args.every s.
+
+    The bearing sent to /walk is the ground truth of each leg's direction (known by construction).
+    Legs chain from where the previous one ended; /teleport is never called. Credentials come from
+    LJ_CONTROL_API_KEY and LJ_CONTROL_API_HOST (host:port) and are never written anywhere.
+    """
+    import json
+    import time
+
+    host, key = _preflight()
     out = Path(args.out)
     _focus(args.serial, GAME_ACTIVITY)
     time.sleep(2)
@@ -678,6 +775,151 @@ def cmd_walkcap(args):
             print(f"leg {b}: {len(rows)} frames")
     finally:
         _api(host, key, "POST", "/walk/stop")
+
+
+def cmd_multileg(args):
+    """Fit one ground->screen map from every walk_C_* move (no device) and write calibration.json.
+
+    Moves are frame pairs (i, i+k), both frames moving, content-flow response >= 0.1, direction from the
+    commanded bearing. Held-out diagnostic: the map fitted without one bearing predicts that bearing's
+    flow direction; prints the mean and sd of observed minus predicted angle.
+    """
+    import json
+
+    data = Path(args.data)
+    cam = json.loads((data / "truth.json").read_text())["cam"]
+    legs = _commanded_legs(data)
+    lat0 = next(iter(legs.values()))[0]["ll"][0]
+    mv = []  # (bearing, d, f)
+    for b, fr in legs.items():
+        for k in args.ks:
+            for i in range(len(fr) - k):
+                if not (fr[i]["moving"] and fr[i + k]["moving"]):
+                    continue
+                fx, fy, resp = content_flow(fr[i]["img"], fr[i + k]["img"])
+                if resp >= 0.1:
+                    mv.append((b, along_track_move(fr[i]["ll"], fr[i + k]["ll"], b, lat0), (fx, fy)))
+    print(f"{len(legs)} legs, bearings {sorted(legs)}, {len(mv)} moves with response >= 0.1")
+    fit = fit_ground_map([(d, f) for _, d, f in mv])
+    if fit is None:
+        (data / "calibration.json").write_text(json.dumps({"rejected": True, "n_moves": len(mv)}))
+        print("calibration REJECTED (too few moves, bearings not spread, or rows disagree)")
+        return
+    fit["cam"] = {**cam, **({"px": args.anchor[0], "py": args.anchor[1]} if args.anchor else {})}
+    (data / "calibration.json").write_text(json.dumps(fit, indent=1))
+    print(f"theta {fit['theta_deg']:.1f} deg  s {fit['s']:.2f}  sy {fit['sy']:.2f} px/m  skew {fit['skew_deg']:.1f} deg  "
+          f"used {fit['n_used']}/{fit['n_total']}  rms {fit['rms_px']:.2f} px")
+    offs = []  # leave-one-bearing-out: map fitted without leg b predicts leg b's flow direction
+    for hb in sorted(legs):
+        rest = fit_ground_map([(d, f) for b, d, f in mv if b != hb])
+        if rest is None:
+            continue
+        a = np.array(rest["A"])
+        for b, d, f in mv:
+            if b != hb or np.hypot(*d) < 3.0 or np.hypot(*f) < 5.0:
+                continue
+            pred, obs = -a @ np.array(d), np.array(f)
+            offs.append((math.degrees(math.atan2(obs[1], obs[0]) - math.atan2(pred[1], pred[0])) + 180) % 360 - 180)
+    if offs:
+        print(f"held-out (leave one bearing out): n={len(offs)} offset mean={np.mean(offs):.1f} "
+              f"sd={np.std(offs):.1f} deg, |offset| p90={np.percentile(np.abs(offs), 90):.1f} deg")
+
+
+def _walk_and_wait(host, key, lat, lon, timeout=300.0, every=2.0):
+    """POST /walk (viaRoads false) and poll until the walk target clears. SystemExit above 3 m/s."""
+    import time
+
+    _api(host, key, "POST", "/walk", {"lat": lat, "lon": lon, "viaRoads": False})
+    t0, seen, last = time.time(), False, None
+    while time.time() - t0 < timeout:
+        time.sleep(every)
+        st = _api(host, key, "GET", "/state")
+        pos, now = (st["position"]["lat"], st["position"]["lon"]), time.time()
+        if last:
+            dn, de = (pos[0] - last[0][0]) * 111320, (pos[1] - last[0][1]) * 111320 * math.cos(math.radians(pos[0]))
+            if math.hypot(dn, de) / max(now - last[1], 1e-6) > 3.0:
+                _api(host, key, "POST", "/walk/stop")
+                raise SystemExit("speed above 3 m/s, aborting")
+        last = (pos, now)
+        seen = seen or st["walk"]["target"] is not None
+        if seen and st["walk"]["target"] is None:
+            return True
+    return False
+
+
+def cmd_taptrials(args):
+    """50 on-device taps: walk to each pixel's predicted ground point, then find where the pixel's content landed.
+
+    Needs calibration.json from multileg. A trial passes when the tapped patch ends within args.tol_m of
+    the player; unverified (NCC < 0.4) and rejected-calibration trials count as fails. Pass iff
+    args.need of args.n trials pass. Writes trials.json and annotated_trials/t<NN>_{before,after}.png.
+    """
+    import json
+    import random
+    import time
+
+    data = Path(args.data)
+    cal = json.loads((data / "calibration.json").read_text())
+    pts = [(x, y) for x in np.linspace(150, 930, 10) for y in (1200, 1250, 1300, 1340, 1380)]
+    random.Random(0).shuffle(pts)
+    pts = pts[:args.n]
+    if cal.get("rejected"):
+        print(f"0/{len(pts)} within {args.tol_m} m: calibration rejected -> FAIL")
+        return
+    a = np.array(cal["A"])
+    anchor = (cal["cam"]["px"], cal["cam"]["py"])
+    host, key = _preflight()
+    out = data / "annotated_trials"
+    out.mkdir(exist_ok=True)
+    _focus(args.serial, GAME_ACTIVITY)
+    time.sleep(2)
+    rows = []
+    try:
+        for i, p in enumerate(pts):
+            st = _api(host, key, "GET", "/state")
+            lat0, lon0 = st["position"]["lat"], st["position"]["lon"]
+            g = tap_to_ground(a, p, anchor)
+            tgt = (lat0 + g[1] / 111320, lon0 + g[0] / (111320 * math.cos(math.radians(lat0))))
+            _adb_screencap(args.serial, out / f"t{i:02d}_before.png")
+            before = cv2.imread(str(out / f"t{i:02d}_before.png"))
+            row = {"i": i, "tap": [float(p[0]), float(p[1])], "ground_m": [float(g[0]), float(g[1])]}
+            if np.hypot(*g) > 150:
+                row.update(error_m=None, ncc=None, verdict="unreachable")
+            else:
+                arrived = _walk_and_wait(host, key, *tgt)
+                time.sleep(3)
+                _adb_screencap(args.serial, out / f"t{i:02d}_after.png")
+                after = cv2.imread(str(out / f"t{i:02d}_after.png"))
+                off, ncc = patch_offset(before, after, p, anchor)
+                err = float(np.linalg.norm(np.linalg.solve(a, np.array(off))))
+                row.update(error_m=err, ncc=ncc, offset_px=[float(off[0]), float(off[1])], arrived=arrived,
+                           verdict="unverified" if ncc < 0.4 else ("pass" if err <= args.tol_m else "fail"))
+                cx, cy = int(anchor[0] + off[0]), int(anchor[1] + off[1])
+                cv2.rectangle(after, (cx - 100, cy - 100), (cx + 100, cy + 100), (0, 255, 0), 4)
+                cv2.drawMarker(after, (int(anchor[0]), int(anchor[1])), (0, 0, 255), cv2.MARKER_CROSS, 60, 6)
+                cv2.putText(after, f"err {err:.1f} m ncc {ncc:.2f} {row['verdict']}", (30, 100),
+                            cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 5)
+                cv2.imwrite(str(out / f"t{i:02d}_after.png"), after)
+                _walk_and_wait(host, key, lat0, lon0)  # back to the start, unscored
+            cv2.circle(before, (int(p[0]), int(p[1])), 40, (0, 255, 0), 6)
+            cv2.putText(before, f"tap -> ground E{g[0]:.0f} N{g[1]:.0f} m", (30, 100),
+                        cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 5)
+            cv2.imwrite(str(out / f"t{i:02d}_before.png"), before)
+            rows.append(row)
+            print(f"t{i:02d} {row['verdict']} err={row['error_m']}", flush=True)
+            (data / "trials.json").write_text(json.dumps(rows, indent=1))
+            if sum(r["verdict"] != "pass" for r in rows) > args.n - args.need:
+                print(f"bar {args.need}/{args.n} unreachable after {len(rows)} trials, stopping")
+                break
+    finally:
+        _api(host, key, "POST", "/walk/stop")
+    errs = sorted(r["error_m"] for r in rows if r["verdict"] in ("pass", "fail"))
+    passes = sum(r["verdict"] == "pass" for r in rows)
+    unv = sum(r["verdict"] in ("unverified", "unreachable") for r in rows)
+    pct = lambda q: errs[min(len(errs) - 1, int(q * len(errs)))] if errs else float("nan")
+    ok = passes >= args.need
+    print(f"{passes}/{len(rows)} within {args.tol_m} m, unverified {unv}, p50 {pct(0.5):.1f} m, "
+          f"p90 {pct(0.9):.1f} m -> {'PASS' if ok else 'FAIL'} (bar {args.need}/{args.n})")
 
 
 def _angle_scale(m):
@@ -798,6 +1040,18 @@ def main(argv=None):
     wc.add_argument("--every", type=float, default=3.0)
     wc.add_argument("--timeout", type=float, default=90.0)
     wc.set_defaults(func=cmd_walkcap)
+    ml = sub.add_parser("multileg")
+    ml.add_argument("data")
+    ml.add_argument("--ks", type=int, nargs="+", default=[4, 6], help="frame gap per move")
+    ml.add_argument("--anchor", type=float, nargs=2, help="player's feet px (x y); default truth.json cam px/py")
+    ml.set_defaults(func=cmd_multileg)
+    tt = sub.add_parser("taptrials")
+    tt.add_argument("data")
+    tt.add_argument("--serial", default="0A061FDD4000JF")
+    tt.add_argument("--n", type=int, default=50)
+    tt.add_argument("--need", type=int, default=48)
+    tt.add_argument("--tol-m", type=float, default=15.0)
+    tt.set_defaults(func=cmd_taptrials)
     rep = sub.add_parser("report")
     rep.add_argument("results")
     rep.set_defaults(func=cmd_report)

@@ -330,6 +330,39 @@ position in steps), while east moves are consistent (about 13 px/m). Only one ca
 any-orientation property is unproven (needs the user to rotate the game camera). Annotated end frames with the
 estimated screen-north arrow are written to `annotated/` for checking by eye. Nothing in the app changed.
 
+### Multi-leg calibration and on-device pass rate
+
+Prototype only, bench script `scripts/registration_bench.py` (`multileg`, `taptrials`); nothing in the app changed.
+The two-move heading was replaced by one least-squares ground-to-screen map fitted over every valid move of eight
+40 m walk legs (bearings 0, 180, 90, 270, 45, 225, 135, 315, walking speed, no teleport, Pixel 5). Moves are frame
+pairs 4 and 6 frames apart, both moving, flow response at least 0.1, direction taken from the commanded bearing;
+outliers beyond max(3 MAD, 1.5 px) are dropped and the map refitted once. No north is assumed: the heading comes
+out of the map in whatever orientation the camera has. The acceptance bar replaces the bench p90 gate: at least
+48 of 50 real taps land within 15 m. A tap pixel is turned into a ground offset with the inverse map, the mock
+position walks there, and the next screenshot is searched for the patch that was under the tapped pixel (masked
+normalised cross-correlation, player excluded), so the error is what the game drew, not what the calibration says.
+Annotated before and after frames are written to `annotated_trials/` for checking by eye.
+
+| measure | value |
+|---|---|
+| legs / moves with response at least 0.1 | 8 / 182 |
+| moves used after outlier drop | 106 |
+| fitted heading, scales, row skew | -1.1 deg, 6.7 and 4.6 px/m, 2.5 deg |
+| residual rms | 2.7 px |
+| held-out, leave one bearing out (n=165) | offset mean -0.1 deg, sd 7.7 deg, p90 of absolute 3.7 deg |
+| taps run | 4 of 50 (stopped once the bar became unreachable) |
+| taps within 15 m | 0 of 4 |
+| landing error | 17.4, 23.3, 28.6, 32.6 m (all matches NCC 0.43 to 0.82) |
+
+Verdict: not viable at the bar (48 of 50 within 15 m); after 4 fails at most 46 can pass. Averaging fixed the
+heading, not the distance: the held-out direction error is small, but every tap's content ended below the player
+(the player overshot), so the single linear scale is wrong away from the band it was measured in, because of the
+camera's perspective. A 2x2 map cannot fix that; a perspective term (near and far scale differ) or per-band scales
+would be the next experiment. Cardinal legs gave mostly zero flow (the game redraws position in steps, as above),
+so the fit leaned on the diagonal legs. Camera orientation was recorded once; the any-orientation property still
+needs the user to rotate the game camera and rerun, with calibration and taps in one uninterrupted session.
+Walking speed is about 0.56 m/s here, so a full 50-tap run takes hours.
+
 ## Warning Screen
 
 Enabling the overlay opens `CompassDisclosureDialog` (see "Prominent Disclosure" above) with two

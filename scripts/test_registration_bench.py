@@ -197,6 +197,43 @@ def test_commanded_move_direction_beats_jittered_positions_for_heading():
     assert np.mean(errs_cmd) < np.mean(errs_raw), (np.mean(errs_cmd), np.mean(errs_raw))
 
 
+def test_fit_ground_map_recovers_heading_with_outliers_and_rejects_one_bearing():
+    rng = np.random.default_rng(3)
+    for theta in (33.0, 200.0):
+        moves = []
+        for b in range(0, 360, 45):
+            for ln in (8.0, 12.0, 16.0, 20.0):
+                d = (ln * math.sin(math.radians(b)), ln * math.cos(math.radians(b)))
+                f = np.array(_flows(7.0, 3.0, theta, [d])[0]) + rng.normal(0, 0.3, 2)
+                moves.append((d, tuple(f)))
+        moves[2] = (moves[2][0], (40.0, -35.0))
+        moves[9] = (moves[9][0], (-30.0, 25.0))
+        moves[20] = (moves[20][0], (0.0, 45.0))
+        fit = rb.fit_ground_map(moves)
+        diff = abs((fit["theta_deg"] - theta + 180) % 360 - 180)
+        assert diff < 1.0 and fit["n_used"] <= len(moves) - 3, (theta, fit)
+    same = [((0.0, ln), tuple(_flows(7.0, 3.0, 33.0, [(0.0, ln)])[0])) for ln in np.linspace(5, 30, 20)]
+    assert rb.fit_ground_map(same) is None
+
+
+def test_tap_to_ground_inverts_ground_to_screen_map():
+    a = -np.array([_flows(7.0, 3.0, 33.0, [(1.0, 0.0), (0.0, 1.0)])]).reshape(2, 2).T
+    anchor, g = np.array([520.0, 1560.0]), np.array([-23.0, 41.5])
+    assert np.allclose(rb.tap_to_ground(a, anchor + a @ g, anchor), g, atol=1e-6)
+
+
+def test_patch_offset_finds_shifted_content_and_ignores_player_sprite():
+    rng = np.random.default_rng(11)
+    canvas = cv2.GaussianBlur(rng.integers(0, 256, (2340, 1080), dtype=np.uint8), (0, 0), 3)
+    anchor, p, want = (520, 1560), (640, 1440), (9, -6)
+    shift = (anchor[0] - p[0] + want[0], anchor[1] - p[1] + want[1])
+    after = cv2.warpAffine(canvas, np.float32([[1, 0, shift[0]], [0, 1, shift[1]]]), (1080, 2340))
+    for img in (canvas, after):
+        cv2.circle(img, anchor, 30, 255, -1)  # player sprite
+    off, ncc = rb.patch_offset(canvas, after, p, anchor)
+    assert abs(off[0] - want[0]) < 3 and abs(off[1] - want[1]) < 3 and ncc > 0.4, (off, ncc)
+
+
 def test_frame_meta_has_only_state_fields():
     st = {"position": {"lat": 1.0, "lon": 2.0}, "speedMs": 1.4, "bearing": 45.0, "key": "SECRET-SENTINEL"}
     row = rb.frame_meta(3, 9.0, 45.0, st, st)
