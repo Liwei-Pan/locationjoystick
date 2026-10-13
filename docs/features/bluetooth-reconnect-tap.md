@@ -105,7 +105,7 @@ These need the target app's HUD in both states, a companion device, and more tha
 
 | Device | Block | Cycles passed / run | Notes |
 |---|---|---|---|
-| Pixel 7 | a (system English, game foreground, screen on, app in recents) | 0 / 6 | Attempts from the automated pilot. Three were aborted or dropped the link without a control state change. Two taps fired while the control read ON. |
+| Pixel 7 | a (system English, game foreground, screen on, app in recents) | 0 / 6 | Attempts from the automated pilot. Three were aborted or dropped the link without a control state change. These rows ran on a build older than 8ee8df9b and are not valid evidence about the current code. |
 | Pixel 7 | b, c, d, e | not run | Blocked by the pilot result below. |
 | Pixel 7 | already-on checks | not run | |
 

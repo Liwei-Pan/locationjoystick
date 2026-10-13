@@ -233,14 +233,14 @@ def collect_until(stream, done, timeout_s, echo=False):
     return lines
 
 
-def watch_app_log(serial, checks_wanted, timeout_s):
-    """Stream the app's tagged log from now on until N check lines arrive or the timeout passes."""
+def watch_app_log(serial, checks_wanted, timeout_s, pattern=CHECK_RE):
+    """Stream the app's tagged log from now on until N matching lines arrive or the timeout passes."""
     stream = open_log_stream(serial)
     checks = 0
 
     def count_check(line):
         nonlocal checks
-        if CHECK_RE.search(line):
+        if pattern.search(line):
             checks += 1
         return checks >= checks_wanted
 
@@ -287,18 +287,19 @@ def cmd_auto(args):
     print(f"auto: {args.device_slug} block {args.block}, {args.cycles} cycles, companion ...{args.mac_suffix}", flush=True)
     for cycle in range(1, args.cycles + 1):
         print(f"[{args.block} {cycle}/{args.cycles}]", flush=True)
+        say("cycling the Bluetooth adapter")
+        toggle_ok = toggle_adapter(args.serial)
+        acl_dropped = wait_for_link(args.serial, args.mac_suffix, "Disconnected", 60)
+        say(f"adapter toggle ok={toggle_ok}, companion link dropped={acl_dropped}")
+        time.sleep(TOGGLE_SETTLE_S)
+        before = take_screenshot(args.serial)
+        before_class = classify_screenshot(before)
+        before_shot = save_shot(before, args.device_slug, args.block, cycle, "before", before_class)
+        toggle_ok = toggle_ok and before_class == "OFF"
+
+        # Open the log only now, so lines from before the toggle cannot count as this cycle's result.
         stream = open_log_stream(args.serial)
         try:
-            say("cycling the Bluetooth adapter")
-            toggle_ok = toggle_adapter(args.serial)
-            acl_dropped = wait_for_link(args.serial, args.mac_suffix, "Disconnected", 60)
-            say(f"adapter toggle ok={toggle_ok}, companion link dropped={acl_dropped}")
-            time.sleep(TOGGLE_SETTLE_S)
-            before = take_screenshot(args.serial)
-            before_class = classify_screenshot(before)
-            before_shot = save_shot(before, args.device_slug, args.block, cycle, "before", before_class)
-            toggle_ok = toggle_ok and before_class == "OFF"
-
             say(f"before screenshot reads {before_class}; waiting for the app's next check")
             started = time.monotonic()
             lines = collect_until(stream, lambda line: bool(TERMINAL_RE.search(line)), CYCLE_TIMEOUT_S + 60, echo=True)
@@ -338,7 +339,7 @@ def cmd_run(args):
             adb(args.serial, "shell", "input", "keyevent", "KEYCODE_WAKEUP")
             input("  Bring the game back to the foreground, then press Enter: ")
         started = time.monotonic()
-        lines = watch_app_log(args.serial, checks_wanted=1, timeout_s=CYCLE_TIMEOUT_S)
+        lines = watch_app_log(args.serial, checks_wanted=1, timeout_s=CYCLE_TIMEOUT_S, pattern=TERMINAL_RE)
         seconds = round(time.monotonic() - started, 1)
         info = classify_logs(lines)
         connected = wait_for_link(args.serial, args.mac_suffix, "Connected", 30)
