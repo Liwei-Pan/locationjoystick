@@ -66,6 +66,31 @@ def test_cycle_passes_only_when_reconnected_and_connected():
     assert not rm.cycle_passes(None, True)
 
 
+def _png(path_or_none, size=None):
+    """PNG bytes for a fixture file, or a solid gray frame of `size`."""
+    if path_or_none is not None:
+        return Path(path_or_none).read_bytes()
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", size, (128, 128, 128)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+RECONNECT_FIXTURES = Path(__file__).resolve().parent.parent / "feature/widget/impl/src/test/resources/reconnect"
+
+
+def test_classify_screenshot_fixtures():
+    assert rm.classify_screenshot(_png(RECONNECT_FIXTURES / "hud_on_night.png")) == "ON"
+    assert rm.classify_screenshot(_png(RECONNECT_FIXTURES / "hud_off_night.png")) == "OFF"
+
+
+def test_classify_screenshot_blank_is_none():
+    assert rm.classify_screenshot(_png(None, size=(864, 1920))) == "NONE"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:

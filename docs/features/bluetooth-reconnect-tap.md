@@ -107,3 +107,13 @@ These need the target app's HUD in both states, a companion device, and more tha
 ## Open work
 
 - `prove-bluetooth-reconnect-tap-100-reliable-on-real-devices`: repeated disconnect and reconnect matrix on real devices.
+
+### Automated cycles
+
+`scripts/reconnect_matrix.py auto` runs disconnect and reconnect cycles without an operator at each cycle, for blocks a, b, d and e. Block c (screen off, then bring the game forward) still needs `run`.
+
+- Each cycle cycles the phone's Bluetooth adapter off and on to drop the companion link, then waits for the app's check.
+- Connect and disconnect each take at least 3 s to load in the UI. The script waits `TOGGLE_SETTLE_S` (5 s) after every toggle before it takes a screenshot.
+- Every cycle saves a before and an after screenshot to `scripts/reconnect-matrix/shots/`, named with the host-side class: `<device>_<block>_<cycle>_<before|after>_<ON|OFF|NONE>.png`. The class comes from a host port of `ReconnectControlDetector`. Review the screenshots and their names by hand; the script's pass rule is a convenience, not the verdict.
+- A cycle passes only when the adapter toggle worked, the before screenshot reads OFF, the app reports RECONNECTED, the link is back, and the after screenshot reads ON.
+- **Faithfulness of the adapter toggle is not yet measured.** A pilot run (10 cycles on the test device) decides whether the adapter cycle is a faithful stand-in for a physical disconnect. If fewer than 10 of 10 cycles report `toggle_ok`, record that finding here and do not run the full matrix.
