@@ -4,6 +4,11 @@ plugins {
 
 android {
     namespace = "com.locationjoystick.feature.widget.impl"
+
+    buildFeatures {
+        buildConfig = true
+    }
+
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }

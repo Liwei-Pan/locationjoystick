@@ -272,7 +272,13 @@ class CompassAccessibilityService :
                 .distinctUntilChanged()
                 .collectLatest { active ->
                     while (active) {
-                        delay(AppConstants.ReconnectTapConstants.CHECK_INTERVAL_MS)
+                        delay(
+                            if (BuildConfig.DEBUG) {
+                                AppConstants.ReconnectTapConstants.DEBUG_CHECK_INTERVAL_MS
+                            } else {
+                                AppConstants.ReconnectTapConstants.CHECK_INTERVAL_MS
+                            },
+                        )
                         runReconnectCheck()
                     }
                 }

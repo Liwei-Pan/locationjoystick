@@ -620,9 +620,13 @@ object AppConstants {
     }
 
     object ReconnectTapConstants {
-        // User decision: a fixed ~5 minute periodic check, no manual trigger. First check runs one
+        // User decision: a fixed 1 minute periodic check, no manual trigger. First check runs one
         // interval after the loop (re)starts so enabling the setting never taps immediately.
-        const val CHECK_INTERVAL_MS = 5 * 60_000L
+        const val CHECK_INTERVAL_MS = 60_000L
+
+        // Debug builds only: the reliability matrix (scripts/reconnect_matrix.py) needs hundreds of
+        // cycles, so the wait per cycle is short.
+        const val DEBUG_CHECK_INTERVAL_MS = 10_000L
 
         // Policy: two OFF reads this far apart, then up to MAX_TAPS taps, each after a human-like
         // pause and followed by a settle wait before the control is read again.

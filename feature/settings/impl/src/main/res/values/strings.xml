@@ -93,7 +93,7 @@
     <string name="settings_menus_map_source_amap_default_city">"Beijing, China"</string>
     <string name="settings_menus_map_source_amap_note">"Amap tiles use the GCJ-02 coordinate system. Positions are converted automatically so markers, routes and taps line up; all data is still stored in WGS-84."</string>
     <string name="settings_menus_reconnect_accessory">"Reconnect accessory"</string>
-    <string name="settings_menus_reconnect_accessory_description">"Every 5 minutes, checks whether your accessory shows as disconnected and taps its connect button."</string>
+    <string name="settings_menus_reconnect_accessory_description">"Every minute, checks whether your accessory shows as disconnected and taps its connect button."</string>
     <string name="settings_menus_reconnect_accessory_automatically">"Reconnect accessory automatically"</string>
     <string name="settings_menus_tap_to_walk">"Tap to Walk"</string>
     <string name="settings_menus_walk_to_a_location_by_tapping">"Walk to a location by tapping it — no confirmation needed."</string>
