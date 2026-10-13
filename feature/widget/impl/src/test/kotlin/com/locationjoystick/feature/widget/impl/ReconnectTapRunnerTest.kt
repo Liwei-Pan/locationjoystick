@@ -64,9 +64,36 @@ class ReconnectTapRunnerTest {
                 })
             assertEquals(ReconnectRunResult.FAILED, result)
             assertEquals(3, taps.count)
-            // Gap between taps: settle 4s + retry gap 5s + pre-tap delay 0.7..2.2s.
+            // Gap between taps: settle 4s + 4 poll gaps of 2s + pre-tap delay 0.7..2.2s.
             val gap = taps.times[1] - taps.times[0]
-            assertTrue("gap $gap", gap in 9_700..11_200)
+            assertTrue("gap $gap", gap in 12_700..14_200)
+        }
+
+    @Test
+    fun `connect that finishes late reconnects with one tap`() =
+        runTest {
+            val taps = Taps()
+            val result =
+                runReconnectTap(1080, reads(off, off, off, off, on), { _, _, _ ->
+                    taps.count++
+                    true
+                })
+            assertEquals(ReconnectRunResult.RECONNECTED, result)
+            assertEquals(1, taps.count)
+        }
+
+    @Test
+    fun `retap only after every poll read is off`() =
+        runTest {
+            val taps = Taps()
+            // 2 confirm reads + 5 poll reads all OFF, second tap, then ON.
+            val result =
+                runReconnectTap(1080, reads(off, off, off, off, off, off, off, on), { _, _, _ ->
+                    taps.count++
+                    true
+                })
+            assertEquals(ReconnectRunResult.RECONNECTED, result)
+            assertEquals(2, taps.count)
         }
 
     @Test

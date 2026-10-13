@@ -62,8 +62,8 @@ Implemented changes:
 ## Tap policy
 
 - Tap only when the control reads "off", confirmed by two consecutive screenshots 400 ms apart. Never tap on "on" or "unknown".
-- After a tap, wait 4 s, then re-screenshot and re-classify.
-- At most 3 taps per run, with a 5 s gap between failed attempts. Abort and report after the third failure.
+- After a tap, wait 4 s, then read up to 5 times, 2 s apart. Stop as soon as one read is "on". Tap again only when all 5 reads are "off", so a connected or connecting companion is never tapped again.
+- At most 3 taps per run. Abort and report after the third failure.
 
 ## Human-like timing and jitter
 

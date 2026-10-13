@@ -629,12 +629,13 @@ object AppConstants {
         const val DEBUG_CHECK_INTERVAL_MS = 10_000L
 
         // Policy: two OFF reads this far apart, then up to MAX_TAPS taps, each after a human-like
-        // pause and followed by a settle wait before the control is read again.
+        // pause. After a tap: settle, then up to SETTLE_POLL_READS reads; retap only when all are OFF.
         const val CONFIRM_DELAY_MS = 400L
         const val PRE_TAP_DELAY_MIN_MS = 700L
         const val PRE_TAP_DELAY_MAX_MS = 2200L
         const val SETTLE_DELAY_MS = 4000L
-        const val RETRY_GAP_MS = 5000L
+        const val SETTLE_POLL_READS = 5
+        const val SETTLE_POLL_INTERVAL_MS = 2000L
         const val MAX_TAPS = 3
 
         // Gesture stroke length and tap offset spread, as fractions of the screen width (the ball

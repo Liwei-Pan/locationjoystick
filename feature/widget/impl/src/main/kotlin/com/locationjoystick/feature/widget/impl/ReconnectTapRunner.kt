@@ -30,7 +30,7 @@ internal fun jitteredTapPoint(
 
 /**
  * One reconnect run. Taps only on a fresh OFF read: two OFF reads, then up to MAX_TAPS taps, each
- * re-read afterwards. An absent or unknown control (null) never taps.
+ * followed by a poll window; a retap needs every poll read OFF. An absent or unknown control (null) never taps.
  */
 internal suspend fun runReconnectTap(
     screenWidth: Int,
@@ -47,10 +47,13 @@ internal suspend fun runReconnectTap(
         val (x, y) = jitteredTapPoint(control, screenWidth, random)
         tap(x, y, random.nextLong(ReconnectTapConstants.GESTURE_MIN_MS, ReconnectTapConstants.GESTURE_MAX_MS + 1))
         delay(ReconnectTapConstants.SETTLE_DELAY_MS)
-        val after = capture() ?: return ReconnectRunResult.FAILED
-        if (after.state == ReconnectState.ON) return ReconnectRunResult.RECONNECTED
-        control = after
-        delay(ReconnectTapConstants.RETRY_GAP_MS)
+        // A slow connect still reads OFF for a few seconds; retap only if every poll read is OFF.
+        repeat(ReconnectTapConstants.SETTLE_POLL_READS) { read ->
+            val after = capture() ?: return ReconnectRunResult.FAILED
+            if (after.state == ReconnectState.ON) return ReconnectRunResult.RECONNECTED
+            control = after
+            if (read < ReconnectTapConstants.SETTLE_POLL_READS - 1) delay(ReconnectTapConstants.SETTLE_POLL_INTERVAL_MS)
+        }
     }
     return ReconnectRunResult.FAILED
 }
