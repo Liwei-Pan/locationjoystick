@@ -99,6 +99,23 @@ These need the target app's HUD in both states, a companion device, and more tha
 - Control bounding box and OFF/ON colors on more devices, in the day theme, and at other brightness levels.
 - Probe of `MotionEvent` flags, source, device id, tool type, pressure and size for a real finger tap, `adb shell input tap`, and `dispatchGesture` taps, on API 34 and later.
 
+## Reliability proof
+
+**Result: INCOMPLETE. Proof stays open.** Recorded 2026-10-13, app v0.26.0, one device (Pixel 7, the only device attached; API level not recorded).
+
+| Device | Block | Cycles passed / run | Notes |
+|---|---|---|---|
+| Pixel 7 | a (system English, game foreground, screen on, app in recents) | 0 / 6 | Attempts from the automated pilot. Three were aborted or dropped the link without a control state change. Two taps fired while the control read ON. |
+| Pixel 7 | b, c, d, e | not run | Blocked by the pilot result below. |
+| Pixel 7 | already-on checks | not run | |
+
+- The adapter-toggle pilot gate ("fewer than 10 of 10 cycles report `toggle_ok`, do not run the full matrix") was not met. Some runs reported `toggle_ok` false.
+- A tap fired while the control read ON in two recorded cycles. This breaks the zero-taps-when-on rule.
+- Only one device was used. The task's >= 3 devices requirement was dropped by user decision, so the one-device run cannot close the task on its own.
+- Full matrix: 5 blocks x 20 cycles per device, each cycle needs the companion disconnected and confirmed, so most of it has to run with an operator at the device.
+
+The raw rows are in `scripts/reconnect-matrix/cycles.jsonl` (not committed). Failures are not tuned in this task. Follow-up: see "Open work".
+
 ## Open risks
 
 - **Play review.** Gesture use under a service that declares `isAccessibilityTool="false"` is a review risk. Mitigation: off by default, separate explicit acceptance, disclosure names the periodic screenshot and tap, never taps on unknown.
