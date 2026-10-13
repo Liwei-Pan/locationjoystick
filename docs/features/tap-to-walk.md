@@ -159,7 +159,8 @@ AccessibilityService API, the data it reads (one screenshot), the purpose (compa
 that the screenshot stays on-device and nothing is collected or shared. Its title and body say
 "Accessibility" explicitly. It cannot be dismissed by back press or outside tap — only "Accept" or
 "Decline" (the wording from Play's prominent-disclosure guidance), plus a small "Skip" at the
-bottom right on the onboarding prompt only (`onSkip`). Only "Accept" opens
+bottom right on the onboarding prompt only (`onSkip`). The body text scrolls while the buttons
+stay fixed at the bottom, so they are always visible. Only "Accept" opens
 `ACTION_ACCESSIBILITY_SETTINGS`; Skip consents to nothing and opens nothing. A "Read the Tap to
 Walk guide" link opens `AppConstants.AppInfo.TAP_TO_WALK_GUIDE_URL` (the wiki page), so the
 in-app disclosure stands on its own and the long-form explanation stays one tap away.

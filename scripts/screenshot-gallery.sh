@@ -1334,10 +1334,7 @@ if should_run_step "20"; then
     wait_s 1 "Warning dialog opening"
     # Button label is "Accept" when the Accessibility disclosure is unanswered
     # (API 30+), else "Enable anyway" (below API 30, or already answered).
-    # Exact match: the disclosure body contains "Tap Accept to open…", and the
-    # buttons sit below the fold, so scroll first.
-    $ADB shell input swipe 540 1800 540 400
-    wait_s 1 "Scrolling to dialog buttons"
+    # Exact match: the disclosure body contains "Tap Accept to open…".
     dump=$(ui_dump)
     agree=$(grep -c 'text="Accept"' "$dump" || true)
     rm -f "$dump"
@@ -1458,9 +1455,6 @@ if should_run_step "25"; then
   screenshot "25_compass_disclosure"
   # Decline leaves the feature off and records nothing, so the device keeps the
   # state it had before this step.
-  # The disclosure is taller than the screen; Decline sits below the fold.
-  $ADB shell input swipe 540 1800 540 400
-  wait_s 1 "Scrolling to Decline"
   tap_text_exact "Decline"
   wait_s 1 "Dismissing disclosure"
 fi

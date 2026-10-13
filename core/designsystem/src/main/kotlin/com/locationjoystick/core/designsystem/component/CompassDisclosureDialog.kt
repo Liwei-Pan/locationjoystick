@@ -43,6 +43,8 @@ import com.locationjoystick.core.designsystem.R
  *
  * [onSkip], when set, adds a small bottom-right Skip button for the first-run prompt: it neither
  * consents nor opens settings, it only marks the prompt as asked.
+ *
+ * The body scrolls; Decline/Accept (and Skip) stay pinned at the bottom so they are always visible.
  */
 @Composable
 fun CompassDisclosureDialog(
@@ -66,37 +68,38 @@ fun CompassDisclosureDialog(
     ) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Icon(
-                    LjIcons.Explore,
-                    contentDescription = null,
-                    modifier = Modifier.size(40.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Text(title, style = MaterialTheme.typography.headlineSmall)
-                caveats.forEach { Text(it) }
-                if (showAccessibilityDisclosure) {
-                    Text(stringResource(R.string.compass_disclosure_intro))
-                    Text(stringResource(R.string.compass_disclosure_data))
-                    Text(stringResource(R.string.compass_disclosure_purpose))
-                    Text(stringResource(R.string.compass_disclosure_handling))
-                    Text(stringResource(R.string.compass_disclosure_optional))
-                }
-                TextButton(
-                    onClick = {
-                        context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(AppConstants.AppInfo.TAP_TO_WALK_GUIDE_URL)),
-                        )
-                    },
-                    contentPadding = PaddingValues(0.dp),
+                Column(
+                    modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    Text(stringResource(R.string.compass_disclosure_guide))
+                    Icon(
+                        LjIcons.Explore,
+                        contentDescription = null,
+                        modifier = Modifier.size(40.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(title, style = MaterialTheme.typography.headlineSmall)
+                    caveats.forEach { Text(it) }
+                    if (showAccessibilityDisclosure) {
+                        Text(stringResource(R.string.compass_disclosure_intro))
+                        Text(stringResource(R.string.compass_disclosure_data))
+                        Text(stringResource(R.string.compass_disclosure_purpose))
+                        Text(stringResource(R.string.compass_disclosure_handling))
+                        Text(stringResource(R.string.compass_disclosure_optional))
+                    }
+                    TextButton(
+                        onClick = {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(AppConstants.AppInfo.TAP_TO_WALK_GUIDE_URL)),
+                            )
+                        },
+                        contentPadding = PaddingValues(0.dp),
+                    ) {
+                        Text(stringResource(R.string.compass_disclosure_guide))
+                    }
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
