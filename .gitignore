@@ -33,5 +33,8 @@ Thumbs.db
 # Bearing-registration bench: local venv and device-captured dataset (scripts/registration_bench.py)
 scripts/registration-bench/
 
+# Bluetooth reconnect reliability matrix: raw cycle log and device screencap corpus (scripts/reconnect_matrix.py)
+scripts/reconnect-matrix/
+
 # Local Play Console demo recordings (scripts/playstore-foreground-location-video.sh)
 *.mp4
