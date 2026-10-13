@@ -37,6 +37,13 @@ def similarity_from_points(src, dst):
     return np.array([[p[0], -p[1], p[2]], [p[1], p[0], p[3]]])
 
 
+def truth_from_annotations(points):
+    """3x3 ground-truth homography (ref -> game) from annotated rows [rx, ry, gx, gy]; least squares."""
+    pts = np.asarray(points, dtype=np.float64)
+    h, _ = cv2.findHomography(pts[:, :2], pts[:, 2:4], 0)
+    return h
+
+
 def _apply(m, pts):
     """Map Nx2 points through a 2x3 affine or 3x3 homography (with perspective divide)."""
     m = np.asarray(m, dtype=np.float64)

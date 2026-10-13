@@ -91,6 +91,26 @@ def test_homography_recovers_pitched_view_and_scores_unrelated_lower():
     assert inlier_ratio > wrong_ratio, (inlier_ratio, wrong_ratio)
 
 
+def test_truth_from_annotations_recovers_known_homography():
+    size = 512
+    src = np.float32([[0, 0], [size, 0], [size, size], [0, size]])
+    dst = np.float32([[size * 0.2, 0], [size * 0.8, 0], [size, size], [0, size]])
+    known = cv2.getPerspectiveTransform(src, dst)
+    # 8 annotated ref points spread over the frame, mapped through the known homography.
+    ref_pts = np.array([[10, 20], [500, 30], [40, 250], [480, 260], [256, 10],
+                        [256, 500], [120, 400], [400, 120]], dtype=np.float64)
+    game_pts = rb._apply(known, ref_pts)
+    truth = rb.truth_from_annotations(np.hstack([ref_pts, game_pts]))
+    assert np.allclose(truth / truth[2, 2], known / known[2, 2], atol=1e-6)
+    assert rb.landing_error_m(truth, truth, size, size, 0.23) == 0.0
+    # A one-pixel annotation shift gives a small, non-zero error.
+    shifted = game_pts.copy()
+    shifted[0, 0] += 1.0
+    off = rb.truth_from_annotations(np.hstack([ref_pts, shifted]))
+    err = rb.landing_error_m(off, truth, size, size, 0.23)
+    assert 0.0 < err < 1.0, err
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:
