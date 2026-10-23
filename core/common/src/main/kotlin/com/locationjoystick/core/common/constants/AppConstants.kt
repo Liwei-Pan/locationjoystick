@@ -581,6 +581,14 @@ object AppConstants {
         const val FOLLOWER_RESUME_IDLE_MS = 30_000L
     }
 
+    object AdbCommandConstants {
+        const val ACTION_TELEPORT = "com.locationjoystick.app.action.TELEPORT"
+        const val EXTRA_LAT = "lat"
+        const val EXTRA_LON = "lon"
+        const val ACTION_OVERLAY = "com.locationjoystick.app.action.OVERLAY"
+        const val EXTRA_VISIBLE = "visible"
+    }
+
     object TapToWalkConstants {
         // Calibrated for a fully zoomed-out AR game map: two known landmarks ~40.5 m apart spanning ~173 px → 0.23 m/px.
         const val DEFAULT_SCALE_MPX = 0.23

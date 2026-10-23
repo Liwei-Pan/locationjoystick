@@ -113,6 +113,7 @@ Rules:
 | Export / Import | docs/features/export-import.md |
 | QR Share / Transfer | docs/features/qr-transfer.md |
 | Location Links (Automatic & Capture) | docs/features/location-links.md |
+| adb Commands | docs/features/adb-commands.md |
 | Last Remembered Location | docs/features/last-location.md |
 | Onboarding | docs/features/onboarding.md |
 | Group Sync | docs/features/group-sync.md |

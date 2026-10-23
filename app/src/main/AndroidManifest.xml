@@ -153,6 +153,17 @@
             </intent-filter>
         </activity>
 
+        <!-- DUMP is held only by the adb shell and the system, so other apps cannot send these broadcasts. -->
+        <receiver
+            android:name=".AdbCommandReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.locationjoystick.app.action.TELEPORT" />
+                <action android:name="com.locationjoystick.app.action.OVERLAY" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name="com.locationjoystick.feature.widget.impl.CompassAccessibilityService"
             android:enabled="@bool/compass_accessibility_service_enabled"

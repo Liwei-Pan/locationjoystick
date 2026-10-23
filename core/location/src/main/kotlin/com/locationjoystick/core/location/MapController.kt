@@ -396,6 +396,21 @@ class MapController
             }
         }
 
+        /**
+         * Starts spoofing directly at [position] (an idle service only records position updates,
+         * it never starts the mock provider from one) and remembers it as the last location.
+         */
+        fun startSpoofingAt(position: LatLng) {
+            ContextCompat.startForegroundService(
+                context,
+                MockLocationIntentBuilder.startSpoofing(context, position.latitude, position.longitude),
+            )
+            appScope.launch {
+                settingsRepository.setLastLocation(position)
+                settingsRepository.setLastTeleportTime(System.currentTimeMillis())
+            }
+        }
+
         fun stopSpoofing() {
             ContextCompat.startForegroundService(context, MockLocationIntentBuilder.stopSpoofing(context))
             ephemeralReplayController.clearPendingWaypoints()
